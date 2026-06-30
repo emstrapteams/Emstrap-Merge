@@ -1,5 +1,9 @@
 import { useState, useRef, useEffect } from "react";
-import API, { API_URL, cancelEmergency } from "../../services/api";
+import API, {
+  API_URL,
+  cancelEmergency,
+  precheckEmergency,
+} from "../../services/api";
 import toast from "react-hot-toast";
 import { io } from "socket.io-client";
 import Navbar from "../../components/layout/Navbar";
@@ -18,7 +22,9 @@ export default function Emergency() {
   const cameraRef = useRef(null);
   const watchIdRef = useRef(null);
   const [socket, setSocket] = useState(null);
-
+  const [showAIWarning, setShowAIWarning] = useState(false);
+  const [pendingEmergency, setPendingEmergency] = useState(null);
+  const [aiResult, setAIResult] = useState(null);
   const setStep = (newStep) => {
     sessionStorage.setItem("emergency_step", newStep);
     setStepState(newStep);
@@ -120,10 +126,53 @@ export default function Emergency() {
   };
 
   const handleSendEmergency = async (photoData) => {
+
+    if (!location) {
+      toast.error("Waiting for GPS location...");
+      return;
+    }
+
+    try {
+
+      const precheck = await precheckEmergency({
+        latitude: location.lat,
+        longitude: location.lng,
+        imageUrl: photoData || photo || "",
+      });
+      console.log("PRECHECK RESPONSE", precheck);
+      console.log("WARNING?", precheck.warningRequired);
+      if (precheck.warningRequired) {
+        console.log("OPENING MODAL");
+        setAIResult(precheck);
+
+        // Store the uploaded Cloudinary URL, not the Base64 image
+        setPendingEmergency(precheck.secureImageUrl);
+
+        setShowAIWarning(true);
+
+        return;
+
+      }
+      console.log("SUBMITTING DIRECTLY");
+
+      // No warning → use the already uploaded image
+      await submitEmergency(precheck.secureImageUrl);
+
+    } catch (err) {
+
+      console.error(err);
+
+      toast.error("AI pre-check failed.");
+
+    }
+
+  };
+  const submitEmergency = async (photoData) => {
     cameraRef.current?.stopCamera();
     setStep("searching");
 
     try {
+      console.log("submitEmergency() CALLED");
       if (!location) {
         toast.error("Failed to acquire live location. Please allow GPS.");
         setStep("start");
@@ -133,7 +182,7 @@ export default function Emergency() {
       const response = await API.post("/api/emergency", {
         latitude: location.lat,
         longitude: location.lng,
-        imageUrl: photoData || photo || ""
+        imageUrl: photoData,
       });
 
       const requestId = response.data.data._id;
@@ -375,6 +424,69 @@ export default function Emergency() {
           )}
 
         </div>
+        {showAIWarning && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-zinc-900 rounded-2xl p-8 w-[420px] shadow-2xl">
+
+              <h2 className="text-2xl font-bold text-red-600">
+                ⚠ AI Safety Check
+              </h2>
+
+              <p className="mt-4 text-zinc-600 dark:text-zinc-300">
+                Our AI believes this image may not represent
+                an emergency.
+              </p>
+
+              <div className="mt-6 space-y-2">
+
+                <p>
+                  <strong>Prediction:</strong>{" "}
+                  {aiResult?.aiAnalysis?.predictedClass}
+                </p>
+
+                <p>
+                  <strong>Confidence:</strong>{" "}
+                  {(aiResult?.aiAnalysis?.confidence * 100).toFixed(1)}%
+                </p>
+
+                <p>
+                  <strong>Severity:</strong>{" "}
+                  {aiResult?.aiAnalysis?.severity}
+                </p>
+
+              </div>
+
+              <div className="flex justify-end gap-3 mt-8">
+
+                <button
+                  onClick={() => {
+                    setShowAIWarning(false);
+                  }}
+                  className="px-5 py-2 rounded-lg border"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  onClick={async () => {
+
+                    setShowAIWarning(false);
+
+                    await submitEmergency(
+                      pendingEmergency
+                    );
+
+                  }}
+                  className="bg-red-600 text-white px-5 py-2 rounded-lg"
+                >
+                  Continue Anyway
+                </button>
+
+              </div>
+
+            </div>
+          </div>
+        )}
       </Container>
     </div>
   );

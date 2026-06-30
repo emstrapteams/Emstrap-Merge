@@ -246,6 +246,19 @@ export default function HospitalDashboard() {
       "Live GPS Coordinates": liveLoc ? `${liveLoc.lat.toFixed(6)}, ${liveLoc.lng.toFixed(6)} • Live Signal` : "Awaiting signal",
       "Evidence Image": alert.imageUrl || "No image uploaded",
       "Reported Time": formatDate(alert.createdAt),
+      "AI Prediction":
+        alert.aiAnalysis?.predictedClass || "N/A",
+
+      Severity:
+        alert.aiAnalysis?.severity || "N/A",
+
+      "AI Confidence":
+        alert.aiAnalysis
+          ? `${(alert.aiAnalysis.confidence * 100).toFixed(1)}%`
+          : "N/A",
+
+      "Recommended Ambulance":
+        alert.aiAnalysis?.recommendedAmbulance || "N/A",
     };
   };
 
@@ -437,12 +450,65 @@ export default function HospitalDashboard() {
                           </span>
                         </td>
 
-                        {/* Priority Info tag */}
+                        {/* AI Analysis */}
                         <td className="whitespace-nowrap px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${priority.colorClass}`}>
-                            {priority.pulse && <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />}
-                            {priority.label}
-                          </span>
+
+                          {alert.aiAnalysis ? (
+
+                            <div className="space-y-2">
+
+                              {/* Emergency Type */}
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${alert.aiAnalysis.predictedClass === "fire"
+                                    ? "bg-red-100 text-red-700"
+                                    : alert.aiAnalysis.predictedClass === "accident"
+                                      ? "bg-orange-100 text-orange-700"
+                                      : alert.aiAnalysis.predictedClass === "medical"
+                                        ? "bg-blue-100 text-blue-700"
+                                        : "bg-green-100 text-green-700"
+                                  }`}
+                              >
+                                {alert.aiAnalysis.predictedClass.toUpperCase()}
+                              </span>
+
+                              {/* Severity */}
+                              <br />
+
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wide ${alert.aiAnalysis.severity === "CRITICAL"
+                                    ? "bg-red-600 text-white"
+                                    : alert.aiAnalysis.severity === "HIGH"
+                                      ? "bg-orange-500 text-white"
+                                      : alert.aiAnalysis.severity === "MODERATE"
+                                        ? "bg-yellow-500 text-white"
+                                        : "bg-green-600 text-white"
+                                  }`}
+                              >
+                                {alert.aiAnalysis.severity}
+                              </span>
+
+                              {/* Confidence */}
+                              <div className="text-xs font-bold text-blue-600 dark:text-blue-400">
+
+                                🎯 {(alert.aiAnalysis.confidence * 100).toFixed(1)}%
+
+                              </div>
+
+                            </div>
+
+                          ) : (
+
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wide ${priority.colorClass}`}
+                            >
+                              {priority.pulse && (
+                                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-ping" />
+                              )}
+                              {priority.label}
+                            </span>
+
+                          )}
+
                         </td>
 
                         {/* Ambulance Team allocation */}
@@ -529,10 +595,43 @@ export default function HospitalDashboard() {
                         </h3>
                         <p className="text-xs text-slate-455 font-semibold">{alert.user?.mobile || "No phone listed"}</p>
                       </div>
-                      <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide ${priority.colorClass}`}>
-                        {priority.pulse && <span className="h-1 w-1 rounded-full bg-red-500 animate-pulse" />}
-                        {priority.label}
-                      </span>
+                      <div className="flex flex-col items-end gap-2">
+
+                        {alert.aiAnalysis ? (
+
+                          <>
+
+                            <span className="rounded-full bg-red-100 text-red-700 px-2.5 py-1 text-[9px] font-black uppercase">
+
+                              {alert.aiAnalysis.predictedClass}
+
+                            </span>
+
+                            <span className="rounded-full bg-orange-500 text-white px-2.5 py-1 text-[9px] font-black uppercase">
+
+                              {alert.aiAnalysis.severity}
+
+                            </span>
+
+                            <span className="text-[10px] font-bold text-blue-600">
+
+                              🎯 {(alert.aiAnalysis.confidence * 100).toFixed(1)}%
+
+                            </span>
+
+                          </>
+
+                        ) : (
+
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-wide ${priority.colorClass}`}
+                          >
+                            {priority.label}
+                          </span>
+
+                        )}
+
+                      </div>
                     </div>
 
                     <div className="border-t border-slate-105 dark:border-slate-850 pt-3 flex items-center justify-between text-xs">

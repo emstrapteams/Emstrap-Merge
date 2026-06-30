@@ -235,5 +235,14 @@ export const getAIStats = async () => {
   const response = await API.get("/api/admin/ai-stats");
   return response.data;
 };
+
+export const precheckEmergency = async (data) => {
+  const response = await API.post(
+    "/api/emergency/precheck",
+    data
+  );
+
+  return response.data;
+};
 export default API;
 

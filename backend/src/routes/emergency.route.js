@@ -1,11 +1,11 @@
 import express from "express";
 import authMiddleware from "../middlewares/auth.middleware.js";
 import requireRoles from "../middlewares/role.middleware.js";
-import { createEmergencyRequest, acceptEmergency, declineEmergency, getDriverHistory, cancelEmergency, assignHospital, completeRequest, getEmergencyDetails, markArrived } from "../controllers/emergency.controller.js";
+import { createEmergencyRequest, precheckEmergency, acceptEmergency, declineEmergency, getDriverHistory, cancelEmergency, assignHospital, completeRequest, getEmergencyDetails, markArrived } from "../controllers/emergency.controller.js";
 import optionalAuth from "../middlewares/optionalAuth.middleware.js";
 const router = express.Router();
 const ambulanceDriverOnly = requireRoles("ambulance_driver", "ambulance");
-
+router.post("/precheck", precheckEmergency);
 router.post("/", optionalAuth, createEmergencyRequest);
 router.get("/driver/history", authMiddleware, ambulanceDriverOnly, getDriverHistory);
 router.get("/:id", authMiddleware, getEmergencyDetails);

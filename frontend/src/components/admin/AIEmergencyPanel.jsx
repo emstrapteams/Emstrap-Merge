@@ -56,7 +56,7 @@ export default function AIEmergencyPanel() {
 
                     <h2 className="text-xl font-black text-gray-900 dark:text-white">
 
-                        🧠 AI Emergency Intelligence
+                         AI Emergency Intelligence
 
                     </h2>
 
@@ -70,7 +70,7 @@ export default function AIEmergencyPanel() {
 
                 <div className="text-right">
 
-                    <p className="text-xs uppercase text-gray-400">
+                    <p className="font-bold text-xs uppercase text-gray-400">
 
                         AI Status
 
@@ -86,40 +86,40 @@ export default function AIEmergencyPanel() {
 
             </div>
 
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
+            <div className="font-bold grid grid-cols-2 lg:grid-cols-3 gap-5 mt-6">
 
                 <Stat
-                    title="🔥 Fires"
+                    title=" Fires"
                     value={stats.fires}
                     color="text-red-600"
                 />
 
                 <Stat
-                    title="🚗 Accidents"
+                    title=" Accidents"
                     value={stats.accidents}
                     color="text-orange-600"
                 />
 
                 <Stat
-                    title="🟢 Non Emergency"
+                    title=" Non Emergency"
                     value={stats.nonEmergency}
                     color="text-green-600"
                 />
 
                 <Stat
-                    title="🚨 Critical"
+                    title=" Critical"
                     value={stats.critical}
                     color="text-red-700"
                 />
 
                 <Stat
-                    title="⚠ High"
+                    title=" High"
                     value={stats.high}
                     color="text-orange-600"
                 />
 
                 <Stat
-                    title="🎯 AI Confidence"
+                    title=" AI Confidence"
                     value={`${stats.averageConfidence}%`}
                     color="text-indigo-600"
                 />

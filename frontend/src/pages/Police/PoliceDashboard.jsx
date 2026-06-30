@@ -150,6 +150,16 @@ export default function PoliceDashboard() {
     "Hospital Location": c.hospital?.location || "N/A",
     Image: c.imageUrl || "N/A",
     "Reported At": formatDate(c.createdAt),
+    "AI Prediction": c.aiAnalysis?.predictedClass || "N/A",
+
+    "Severity": c.aiAnalysis?.severity || "N/A",
+
+    "AI Confidence": c.aiAnalysis
+      ? `${(c.aiAnalysis.confidence * 100).toFixed(1)}%`
+      : "N/A",
+
+    "Recommended Ambulance":
+      c.aiAnalysis?.recommendedAmbulance || "N/A",
   });
 
   return (
@@ -258,6 +268,23 @@ export default function PoliceDashboard() {
                       <p className="text-base font-bold text-gray-900 dark:text-white">
                         {c.requestType || "Emergency"} Case
                       </p>
+                      {c.aiAnalysis && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+
+                          <span className="rounded-full bg-red-100 text-red-700 px-3 py-1 text-xs font-bold">
+                            {c.aiAnalysis.predictedClass?.toUpperCase()}
+                          </span>
+
+                          <span className="rounded-full bg-orange-100 text-orange-700 px-3 py-1 text-xs font-bold">
+                            {c.aiAnalysis.severity}
+                          </span>
+
+                          <span className="rounded-full bg-blue-100 text-blue-700 px-3 py-1 text-xs font-bold">
+                            🎯 {(c.aiAnalysis.confidence * 100).toFixed(1)}%
+                          </span>
+
+                        </div>
+                      )}
                       <div className="mt-1 flex items-start gap-1.5 text-sm text-gray-500 dark:text-slate-400">
                         <svg className="mt-0.5 shrink-0" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />

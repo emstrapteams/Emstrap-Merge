@@ -20,23 +20,19 @@ export const calculatePriority = (aiAnalysis) => {
     const confidence =
         aiAnalysis.confidence || 0;
 
-    const priority =
-        Math.round(
-            severityWeights[severity] *
-            confidence
-        );
+    const priority = Math.round(
+        severityWeights[severity] * confidence
+    );
 
+    // Ask for confirmation if AI confidence is below 60%
+    // OR AI predicts it is a non-emergency
     const warningRequired =
-        aiAnalysis.predicted_class ===
-        "non_emergency" &&
-        confidence >= 0.90;
+        confidence < 0.60 ||
+        aiAnalysis.predicted_class === "non_emergency";
 
     return {
-
         priority,
-
         warningRequired,
-
     };
 
 };

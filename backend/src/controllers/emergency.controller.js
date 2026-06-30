@@ -15,6 +15,7 @@ import {
 import Hospital from "../models/hospital.model.js";
 import { calculateDistanceMeters } from "../utils/distance.js";
 import { analyzeEmergencyImage } from "../services/AI/emergencyAI.service.js";
+import { calculatePriority } from "../services/AI/priority.service.js";
 const getBookingModel = () => {
   const bookingConnection = getBookingConnection();
   return getBookingDbBookingModel(bookingConnection);
@@ -176,16 +177,50 @@ export const createEmergencyRequest = async (req, res) => {
     console.log("Creating emergency request. imageUrl present:", !!imageUrl);
 
     let secureImageUrl = "";
+
     if (imageUrl) {
-      try {
-        const uploadResponse = await cloudinary.uploader.upload(imageUrl, {
-          folder: "emergencies",
-        });
-        secureImageUrl = uploadResponse.secure_url;
-        console.log("Cloudinary upload successful:", secureImageUrl);
-      } catch (uploadError) {
-        console.error("Cloudinary upload failed:", uploadError);
+
+      // Image already uploaded during precheck
+      if (
+        imageUrl.startsWith("https://res.cloudinary.com")
+      ) {
+
+        secureImageUrl = imageUrl;
+
+        console.log(
+          "Using existing Cloudinary image:",
+          secureImageUrl
+        );
+
+      } else {
+
+        // First-time upload (fallback for older clients)
+        try {
+
+          const uploadResponse =
+            await cloudinary.uploader.upload(imageUrl, {
+              folder: "emergencies",
+            });
+
+          secureImageUrl =
+            uploadResponse.secure_url;
+
+          console.log(
+            "Cloudinary upload successful:",
+            secureImageUrl
+          );
+
+        } catch (uploadError) {
+
+          console.error(
+            "Cloudinary upload failed:",
+            uploadError
+          );
+
+        }
+
       }
+
     }
 
     let aiResult = {
@@ -299,6 +334,61 @@ export const createEmergencyRequest = async (req, res) => {
   }
 };
 
+export const precheckEmergency = async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({
+        success: false,
+        message: "Image is required",
+      });
+    }
+
+    let secureImageUrl = "";
+
+    try {
+      const uploadResponse = await cloudinary.uploader.upload(imageUrl, {
+        folder: "emergencies/precheck",
+      });
+
+      secureImageUrl = uploadResponse.secure_url;
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: "Image upload failed",
+      });
+    }
+
+    const aiAnalysis = await classifyImage(secureImageUrl);
+
+    const { priority, warningRequired } =
+      calculatePriority(aiAnalysis);
+
+    return res.status(200).json({
+      success: true,
+
+      secureImageUrl,      // <-- ADD THIS
+
+      warningRequired,
+
+      priority,
+
+      aiAnalysis: {
+        predictedClass: aiAnalysis.predicted_class,
+        confidence: aiAnalysis.confidence,
+        severity: aiAnalysis.severity,
+        recommendedAmbulance: aiAnalysis.recommended_ambulance,
+        allProbabilities: aiAnalysis.all_probabilities,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
 export const acceptEmergency = async (req, res) => {
   try {
     const { id } = req.params;
