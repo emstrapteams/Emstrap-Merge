@@ -40,6 +40,40 @@ const emergencyRequestSchema = new mongoose.Schema(
       default: 0,
     },
 
+    aiAnalysis: {
+      predictedClass: {
+        type: String,
+        default: "",
+      },
+
+      confidence: {
+        type: Number,
+        default: 0,
+      },
+
+      severity: {
+        type: String,
+        enum: [
+          "LOW",
+          "MODERATE",
+          "HIGH",
+          "CRITICAL",
+        ],
+        default: "LOW",
+      },
+
+      recommendedAmbulance: {
+        type: String,
+        default: "",
+      },
+
+      allProbabilities: {
+        type: Object,
+        default: {},
+      },
+    },
+
+
     status: {
       type: String,
       enum: [

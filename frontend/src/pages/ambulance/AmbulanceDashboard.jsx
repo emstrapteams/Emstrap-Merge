@@ -553,7 +553,31 @@ export default function AmbulanceDashboard() {
     } catch { /* ignore */ }
     logoutUser?.();
   };
+  const getSeverityPriority = (severity) => {
+    switch (severity) {
+      case "CRITICAL":
+        return 1;
+      case "HIGH":
+        return 2;
+      case "MODERATE":
+        return 3;
+      case "LOW":
+        return 4;
+      default:
+        return 5;
+    }
+  };
 
+  const sortedRequests = [...requests].sort((a, b) => {
+    const aPriority = getSeverityPriority(a.aiAnalysis?.severity);
+    const bPriority = getSeverityPriority(b.aiAnalysis?.severity);
+
+    if (aPriority !== bPriority) {
+      return aPriority - bPriority;
+    }
+
+    return new Date(b.createdAt) - new Date(a.createdAt);
+  });
   const currentAssignment = acceptedHistory.find(req =>
     ["AMBULANCE_ACCEPTED", "ARRIVED_AT_LOCATION", "EN_ROUTE_TO_HOSPITAL"].includes(req.status)
   ) || null;
@@ -602,6 +626,19 @@ export default function AmbulanceDashboard() {
                     <div className="flex items-center gap-2 mb-3 mt-1">
                       <Ambulance className="w-5 h-5" />
                       <h3 className="font-extrabold text-xs text-gray-900 dark:text-white uppercase tracking-wider">
+                        {currentAssignment?.aiAnalysis && (
+                          <div className="mt-2 flex gap-2">
+
+                            <span className="px-2 py-1 rounded-full bg-red-100 text-red-700 text-[10px] font-bold uppercase">
+                              {currentAssignment.aiAnalysis.predictedClass}
+                            </span>
+
+                            <span className="px-2 py-1 rounded-full bg-orange-100 text-orange-700 text-[10px] font-bold uppercase">
+                              {currentAssignment.aiAnalysis.severity}
+                            </span>
+
+                          </div>
+                        )}
                         {currentAssignment.requestType === "EMERGENCY" ? "Emergency Mission" : "Scheduled Booking"}
                       </h3>
                     </div>
@@ -708,19 +745,46 @@ export default function AmbulanceDashboard() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {requests.map((req) => {
+                        {sortedRequests.map((req) => {
                         const payment = getPaymentInfo(req);
                         return (
                           <div key={req._id} className={`bg-white dark:bg-gray-900 border-2 ${req.requestType === "EMERGENCY" ? "border-red-500" : "border-blue-500"} rounded-2xl shadow-md overflow-hidden flex flex-col`}>
                             <div className={`${req.requestType === "EMERGENCY" ? "bg-gradient-to-r from-red-500 to-rose-600 animate-pulse" : "bg-gradient-to-r from-blue-500 to-indigo-600"} px-3 py-1.5 flex items-center justify-center gap-1 text-white font-extrabold tracking-widest text-[9px] uppercase`}>
-                              {req.requestType === "EMERGENCY" ? <><Siren className="w-3 h-3" /> New Emergency</> : <><Calendar className="w-3 h-3" /> Scheduled Booking</>}
+                              {req.requestType === "EMERGENCY" ? <>
+                                <Siren className="w-3 h-3" />
+                                {req.aiAnalysis?.predictedClass
+                                  ? req.aiAnalysis.predictedClass.replace("_", " ").toUpperCase()
+                                  : "NEW EMERGENCY"}
+                              </> : <><Calendar className="w-3 h-3" /> Scheduled Booking</>}
                             </div>
                             <div className="p-3 flex-1 flex flex-col justify-between">
                               <div>
                                 <p className="text-xs font-extrabold text-gray-800 dark:text-gray-200 mb-2">
                                   {req.requestType === "EMERGENCY" ? "Patient needs immediate ambulance evacuation!" : "Ambulance trip reservation request"}
                                 </p>
+                                {req.aiAnalysis && (
+                                  <div className="flex flex-wrap gap-2 mb-3">
 
+                                    <span
+                                      className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase
+      ${req.aiAnalysis.severity === "CRITICAL"
+                                          ? "bg-red-100 text-red-700 border border-red-300"
+                                          : req.aiAnalysis.severity === "HIGH"
+                                            ? "bg-orange-100 text-orange-700 border border-orange-300"
+                                            : req.aiAnalysis.severity === "MODERATE"
+                                              ? "bg-yellow-100 text-yellow-700 border border-yellow-300"
+                                              : "bg-green-100 text-green-700 border border-green-300"
+                                        }`}
+                                    >
+                                      {req.aiAnalysis.severity}
+                                    </span>
+
+                                    <span className="px-2 py-1 rounded-full bg-indigo-50 text-indigo-700 text-[10px] font-semibold border border-indigo-200">
+                                      {(req.aiAnalysis.confidence * 100).toFixed(1)}%
+                                    </span>
+
+                                  </div>
+                                )}
                                 {req.requestType === "BOOKING" && (
                                   <div className="flex items-center justify-between gap-2 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/30 px-2.5 py-2 rounded-xl mb-2">
                                     <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 text-[10px] font-extrabold uppercase tracking-wide">

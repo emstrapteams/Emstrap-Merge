@@ -13,8 +13,13 @@ import AdminAccidentHeatmap from "../../components/admin/AdminAccidentHeatmap";
 import AdminLayout from "../../components/admin/AdminLayout";
 import AdminStatCard from "../../components/admin/AdminStatCard";
 import AdminSurface from "../../components/admin/AdminSurface";
-import { getAdminStats, getErrorMessage, getOverviewStats } from "../../services/api";
-
+import {
+  getAdminStats,
+  getOverviewStats,
+  getAIStats,
+  getErrorMessage,
+} from "../../services/api";
+import AIEmergencyPanel from "../../components/admin/AIEmergencyPanel";
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const overviewItems = [
@@ -24,7 +29,48 @@ const overviewItems = [
   { key: "emergencies", title: "Emergencies", accent: "from-red-500 to-rose-600",       iconBg: "bg-red-100 dark:bg-red-900/40", iconColor: "text-red-600", helper: "Emergency requests", textColor: "text-slate-900", stroke: "#ef4444" },
   { key: "police",      title: "Police",      accent: "from-violet-500 to-purple-700",  iconBg: "bg-violet-100 dark:bg-violet-900/40", iconColor: "text-purple-600", helper: "Police units", textColor: "text-slate-900", stroke: "#8b5cf6" },
 ];
-
+const aiItems = [
+  {
+    key: "fires",
+    title: "Fires",
+    accent: "from-red-500 to-red-700",
+    iconBg: "bg-red-100 dark:bg-red-900/40",
+    iconColor: "text-red-600",
+    helper: "Fire emergencies",
+  },
+  {
+    key: "accidents",
+    title: "Accidents",
+    accent: "from-orange-500 to-orange-700",
+    iconBg: "bg-orange-100 dark:bg-orange-900/40",
+    iconColor: "text-orange-600",
+    helper: "Road accidents",
+  },
+  {
+    key: "nonEmergency",
+    title: "Non Emergency",
+    accent: "from-green-500 to-green-700",
+    iconBg: "bg-green-100 dark:bg-green-900/40",
+    iconColor: "text-green-600",
+    helper: "Low priority cases",
+  },
+  {
+    key: "critical",
+    title: "Critical",
+    accent: "from-rose-500 to-red-600",
+    iconBg: "bg-rose-100 dark:bg-rose-900/40",
+    iconColor: "text-rose-600",
+    helper: "Critical emergencies",
+  },
+  {
+    key: "averageConfidence",
+    title: "AI Confidence",
+    accent: "from-indigo-500 to-violet-600",
+    iconBg: "bg-indigo-100 dark:bg-indigo-900/40",
+    iconColor: "text-indigo-600",
+    helper: "Average prediction confidence",
+  },
+];
 const rangeOptions = ["1D", "1M", "3M", "6M", "1Y"];
 
 const defaultStats = { users: 0, bookings: 0, hospitals: 0, emergencies: 0, police: 0 };
@@ -165,9 +211,10 @@ export default function AdminDashboard() {
       setLoading(true);
       setError("");
       try {
-        const [overviewRes, chartRes] = await Promise.all([
+        const [overviewRes, chartRes, aiRes] = await Promise.all([
           getOverviewStats(),
           getAdminStats(selectedRange),
+          getAIStats(),
         ]);
         if (ignore) return;
 
@@ -175,6 +222,7 @@ export default function AdminDashboard() {
         const nextStats = extractOverviewStats(overviewRes);
         setChartData(nextChart);
         setStats(Object.values(nextStats).some(Boolean) ? nextStats : (nextChart[nextChart.length - 1] || defaultStats));
+
         if (!nextChart.length) setError("No data");
       } catch (err) {
         if (ignore) return;
@@ -202,7 +250,7 @@ export default function AdminDashboard() {
           <StatCard key={item.key} item={item} value={stats[item.key] || 0} />
         ))}
       </div>
-
+      <AIEmergencyPanel />
       {/* Combined chart */}
       <AdminSurface className="mt-6 p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-5">

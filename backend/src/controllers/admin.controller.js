@@ -721,3 +721,152 @@ export const deleteEmergency = async (req, res) => {
         res.status(500).json({ success: false, message: "Error deleting emergency", error: error.message });
     }
 };
+
+export const getAIStats = async (req, res) => {
+    try {
+
+        const result = await Emergency.aggregate([
+
+            {
+                $match: {
+                    aiAnalysis: { $exists: true }
+                }
+            },
+
+            {
+                $facet: {
+
+                    emergencyTypes: [
+                        {
+                            $group: {
+                                _id: "$aiAnalysis.predictedClass",
+                                count: {
+                                    $sum: 1
+                                }
+                            }
+                        }
+                    ],
+
+                    severityLevels: [
+                        {
+                            $group: {
+                                _id: "$aiAnalysis.severity",
+                                count: {
+                                    $sum: 1
+                                }
+                            }
+                        }
+                    ],
+
+                    confidence: [
+                        {
+                            $group: {
+                                _id: null,
+                                averageConfidence: {
+                                    $avg: "$aiAnalysis.confidence"
+                                }
+                            }
+                        }
+                    ]
+                }
+            }
+
+        ]);
+
+        const stats = {
+
+            fires: 0,
+            accidents: 0,
+            medical: 0,
+            nonEmergency: 0,
+
+            critical: 0,
+            high: 0,
+            moderate: 0,
+            low: 0,
+
+            averageConfidence: 0
+        };
+
+        const data = result[0];
+
+        data.emergencyTypes.forEach(item => {
+
+            switch (item._id) {
+
+                case "fire":
+                    stats.fires = item.count;
+                    break;
+
+                case "accident":
+                    stats.accidents = item.count;
+                    break;
+
+                case "medical":
+                    stats.medical = item.count;
+                    break;
+
+                case "non_emergency":
+                    stats.nonEmergency = item.count;
+                    break;
+
+                default:
+                    break;
+            }
+
+        });
+
+        data.severityLevels.forEach(item => {
+
+            switch (item._id) {
+
+                case "CRITICAL":
+                    stats.critical = item.count;
+                    break;
+
+                case "HIGH":
+                    stats.high = item.count;
+                    break;
+
+                case "MODERATE":
+                    stats.moderate = item.count;
+                    break;
+
+                case "LOW":
+                    stats.low = item.count;
+                    break;
+
+                default:
+                    break;
+            }
+
+        });
+
+        if (data.confidence.length > 0) {
+
+            stats.averageConfidence = Number(
+                (data.confidence[0].averageConfidence * 100).toFixed(1)
+            );
+
+        }
+
+        return res.status(200).json({
+
+            success: true,
+
+            stats
+
+        });
+
+    } catch (error) {
+
+        return res.status(500).json({
+
+            success: false,
+
+            message: error.message
+
+        });
+
+    }
+};

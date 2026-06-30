@@ -13,7 +13,7 @@ import AdminLayout from "../../components/admin/AdminLayout";
 import AdminStatCard from "../../components/admin/AdminStatCard";
 import AdminSurface from "../../components/admin/AdminSurface";
 import { getAdminStats, getErrorMessage, getOverviewStats } from "../../services/api";
-
+import AIEmergencyPanel from "../../components/admin/AIEmergencyPanel";
 const overviewItems = [
   {
     key: "users",

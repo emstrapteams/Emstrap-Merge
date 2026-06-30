@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from embedding import get_embedding_from_url
 from similarity import compare_embeddings
-
+from classifier import classify_image_from_url
 app = FastAPI()
 
 
@@ -45,3 +45,12 @@ def compare(data: CompareRequest):
     return {
         "similarity": similarity
     }
+
+@app.post("/classify")
+def classify(data: ImageRequest):
+
+    result = classify_image_from_url(
+        data.imageUrl
+    )
+
+    return result

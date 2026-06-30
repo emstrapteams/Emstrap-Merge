@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
     getAdminStats,
+    getAIStats,
     getAllUsers,
     updateUserRole,
     getAllEmergencies,
@@ -21,6 +22,7 @@ const router = Router();
 router.use(authMiddleware, adminMiddleware);
 
 router.get("/stats", getAdminStats);
+router.get("/ai-stats", getAIStats);
 router.get("/users", getAllUsers);
 router.put("/users/:id", updateUser);
 router.put("/users/:id/role", updateUserRole);

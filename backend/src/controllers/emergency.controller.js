@@ -8,6 +8,10 @@ import {
   generateEmbedding,
   compareEmbeddings,
 } from "../services/duplicateDetection.service.js";
+
+import {
+  classifyImage,
+} from "../services/AI/imageClassifier.service.js";
 import Hospital from "../models/hospital.model.js";
 import { calculateDistanceMeters } from "../utils/distance.js";
 
@@ -188,7 +192,7 @@ export const createEmergencyRequest = async (req, res) => {
     let duplicateOf = null;
     let similarityScore = 0;
     let embedding = [];
-
+    let aiAnalysis = null;
     if (secureImageUrl) {
       try {
         // Generate embedding for new image
@@ -262,6 +266,11 @@ export const createEmergencyRequest = async (req, res) => {
             break;
           }
         }
+        if (!duplicateDetected) {
+          aiAnalysis = await classifyImage(secureImageUrl);
+
+          console.log("AI Classification:", aiAnalysis);
+        }
       } catch (error) {
         console.error(
           "Duplicate detection error:",
@@ -281,6 +290,24 @@ export const createEmergencyRequest = async (req, res) => {
       duplicateDetected,
       duplicateOf,
       similarityScore,
+      aiAnalysis: aiAnalysis
+        ? {
+          predictedClass:
+            aiAnalysis.predicted_class,
+
+          confidence:
+            aiAnalysis.confidence,
+
+          severity:
+            aiAnalysis.severity,
+
+          recommendedAmbulance:
+            aiAnalysis.recommended_ambulance,
+
+          allProbabilities:
+            aiAnalysis.all_probabilities,
+        }
+        : undefined,
     });
 
     // 2️⃣ Populate user details for downstream consumers (hospital, police)

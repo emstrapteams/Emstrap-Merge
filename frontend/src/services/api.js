@@ -231,5 +231,9 @@ export const updatePoliceCaseStatus = async (caseId, status) => {
   return res.data;
 };
 
+export const getAIStats = async () => {
+  const response = await API.get("/api/admin/ai-stats");
+  return response.data;
+};
 export default API;
 
