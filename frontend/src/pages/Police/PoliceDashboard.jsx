@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../../context/AuthContext";
@@ -50,10 +50,46 @@ export default function PoliceDashboard() {
   const [selectedCase, setSelectedCase] = useState(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [popupNotifications, setPopupNotifications] = useState([]);
-
+  const alarmRef = useRef(new Audio("/sounds/emergency-alert.mp3"));
+  const alarmTimeoutRef = useRef(null);
   const dismissPopup = useCallback((id) => {
     setPopupNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
+
+  useEffect(() => {
+    alarmRef.current.loop = false;
+    alarmRef.current.volume = 1;
+  }, []);
+
+  const startPoliceAlert = async () => {
+    try {
+      if (alarmTimeoutRef.current) {
+        clearTimeout(alarmTimeoutRef.current);
+      }
+
+      alarmRef.current.pause();
+      alarmRef.current.currentTime = 0;
+
+      await alarmRef.current.play();
+
+      alarmTimeoutRef.current = setTimeout(() => {
+        stopPoliceAlert();
+      }, 7000);
+
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  const stopPoliceAlert = () => {
+    if (alarmTimeoutRef.current) {
+      clearTimeout(alarmTimeoutRef.current);
+      alarmTimeoutRef.current = null;
+    }
+
+    alarmRef.current.pause();
+    alarmRef.current.currentTime = 0;
+  };
 
   useEffect(() => {
     const fetchCases = async () => {
@@ -70,12 +106,25 @@ export default function PoliceDashboard() {
     };
 
     fetchCases();
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission();
+    }
 
     const socketUrl = API_URL || window.location.origin;
     const socket = io(socketUrl, { withCredentials: true });
     socket.emit("join_police", {});
 
     socket.on("police_new_case", (data) => {
+
+      startPoliceAlert();
+
+      if (Notification.permission === "granted") {
+        new Notification("🚓 New Emergency", {
+          body: "A new emergency requires police assistance.",
+          icon: "/logo.png",
+          requireInteraction: true,
+        });
+      }
       setCases((prev) => {
         if (prev.some((c) => c._id === data.request._id)) {
           if (data.hospitalSelected) {
@@ -99,13 +148,17 @@ export default function PoliceDashboard() {
       );
     });
 
-    return () => socket.close();
+    return () => {
+      stopPoliceAlert();
+      socket.close();
+    };
   }, []);
 
   const handleStatusChange = async (caseId, newStatus) => {
     try {
       const res = await updatePoliceCaseStatus(caseId, newStatus);
       if (res.success) {
+        stopPoliceAlert();
         setCases((prev) =>
           prev.map((c) => (c._id === caseId ? { ...c, status: newStatus } : c))
         );

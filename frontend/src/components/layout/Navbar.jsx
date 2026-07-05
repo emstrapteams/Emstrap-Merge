@@ -3,12 +3,11 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import API from "../../services/api";
 import logo from "../../assets/logo.png";
-import { LayoutDashboard, Map, Bell, LogOut, Menu, Settings, X, User, Moon, Sun, History, Siren, CalendarPlus, ClipboardList, Users } from "lucide-react";
+import { LayoutDashboard, Map, LogOut, Menu, Settings, X, User, Moon, Sun, History, Siren, CalendarPlus, ClipboardList, Users } from "lucide-react";
 
 const icons = {
   dashboard: <LayoutDashboard className="w-6 h-6" />,
   map: <Map className="w-6 h-6" />,
-  bell: <Bell className="w-6 h-6" />,
   logout: <LogOut className="w-6 h-6" />,
   hamburger: <Menu className="w-6 h-6" />,
   settings: <Settings className="w-6 h-6" />,
@@ -180,16 +179,6 @@ export default function Navbar() {
 
             {/* Right side: notifications + profile */}
             <div className="flex items-center gap-2">
-              {user && (
-                <button
-                  className="relative p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
-                  aria-label="Notifications"
-                >
-                  <Bell className="w-6 h-6" />
-                  <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
-                </button>
-              )}
-
               {user && <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-1"></div>}
 
               {!user ? (

@@ -20,7 +20,6 @@ import {
   ClipboardList,
   Inbox,
   ChevronRight,
-  Bell,
   User,
   LogOut,
   Moon,
@@ -162,12 +161,6 @@ function Header({ activeTab, setActiveTab, onHistoryClick, user, onToggleStatus,
         >
           <span className={`h-2 w-2 rounded-full shrink-0 ${isLive ? "bg-green-500 animate-pulse" : "bg-gray-400"}`} />
           <span className="hidden md:inline">{isLive ? "Online" : "Offline"}</span>
-        </button>
-
-        {/* Bell */}
-        <button className="relative h-9 w-9 flex items-center justify-center rounded-lg text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-red-500 border-2 border-white dark:border-gray-950" />
         </button>
 
         {/* Avatar */}

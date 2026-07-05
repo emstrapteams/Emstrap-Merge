@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { io } from "socket.io-client";
 import Container from "../../components/layout/Container";
 import { API_URL, getAlerts, getErrorMessage, getStats, updateHospitalAlertStatus } from "../../services/api";
@@ -80,7 +80,8 @@ export default function HospitalDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [popupNotifications, setPopupNotifications] = useState([]);
-
+  const alarmRef = useRef(new Audio("/sounds/emergency-alert.mp3"));
+  const alarmTimeoutRef = useRef(null);
   // Search bar query state
   const [searchQuery, setSearchQuery] = useState("");
   const [emergencyBeds, setEmergencyBeds] = useState(0);
@@ -88,7 +89,40 @@ export default function HospitalDashboard() {
   const dismissPopup = useCallback((id) => {
     setPopupNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
+  useEffect(() => {
+    alarmRef.current.loop = false;
+    alarmRef.current.volume = 1;
+  }, []);
 
+  const startHospitalAlert = async () => {
+    try {
+      if (alarmTimeoutRef.current) {
+        clearTimeout(alarmTimeoutRef.current);
+      }
+
+      alarmRef.current.pause();
+      alarmRef.current.currentTime = 0;
+
+      await alarmRef.current.play();
+
+      alarmTimeoutRef.current = setTimeout(() => {
+        stopHospitalAlert();
+      }, 7000);
+
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  const stopHospitalAlert = () => {
+    if (alarmTimeoutRef.current) {
+      clearTimeout(alarmTimeoutRef.current);
+      alarmTimeoutRef.current = null;
+    }
+
+    alarmRef.current.pause();
+    alarmRef.current.currentTime = 0;
+  };
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
@@ -106,6 +140,13 @@ export default function HospitalDashboard() {
   useEffect(() => {
     fetchDashboardData();
 
+    if (
+      "Notification" in window &&
+      Notification.permission === "default"
+    ) {
+      Notification.requestPermission();
+    }
+
     const socketUrl = API_URL || window.location.origin;
     const newSocket = io(socketUrl, { withCredentials: true });
 
@@ -116,6 +157,15 @@ export default function HospitalDashboard() {
     }
 
     newSocket.on("hospital_alert", (data) => {
+      startHospitalAlert();
+
+      if (Notification.permission === "granted") {
+        new Notification("🏥 New Emergency", {
+          body: "A new emergency requires hospital attention.",
+          icon: "/logo.png",
+          requireInteraction: true,
+        });
+      }
       setAlerts((prev) => {
         const exists = prev.find((a) => a._id === data.request._id);
         if (exists) {
@@ -139,7 +189,10 @@ export default function HospitalDashboard() {
       }));
     });
 
-    return () => newSocket.close();
+    return () => {
+      stopHospitalAlert();
+      newSocket.close();
+    };
   }, [user?._id]);
   useEffect(() => {
     const fetchHospitalBeds = async () => {
@@ -181,6 +234,7 @@ export default function HospitalDashboard() {
     try {
       const res = await updateHospitalAlertStatus(id, status);
       if (res.success) {
+        stopHospitalAlert();
         setAlerts((prev) => prev.map((a) => (a._id === id ? res.emergency : a)));
         if (selectedAlert?._id === id) setSelectedAlert(res.emergency);
       }

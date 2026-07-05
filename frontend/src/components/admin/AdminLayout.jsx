@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   BarChart3,
-  Bell,
   Building2,
   ChevronDown,
   ClipboardList,
@@ -196,11 +195,7 @@ export default function AdminLayout({ title, description, actions, children }) {
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Notifications */}
-          <button className="relative p-2 text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors">
-            <Bell className="w-6 h-6" />
-            <span className="absolute top-1.5 right-1.5 w-2.5 h-2.5 bg-red-500 border-2 border-white dark:border-gray-900 rounded-full"></span>
-          </button>
+          
 
           <div className="h-6 w-px bg-gray-300 dark:bg-gray-700 mx-1"></div>
 
