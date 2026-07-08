@@ -15,7 +15,7 @@ import {
   LayoutDashboard, Calendar, MapPin, Hospital, Siren, Ambulance,
   Flag, Radar, RefreshCw, CheckCircle2, XCircle, AlertTriangle,
   X, ClipboardList, Phone, Inbox, ChevronRight,
-  User, LogOut, Moon, Sun, Camera,
+  User, LogOut, Moon, Sun, Camera, Navigation,
 } from "lucide-react";
 import EvidenceImageViewer from "../../components/common/EvidenceImageViewer";
 // ─── Fixed Header ─────────────────────────────────────────────────────────────
@@ -240,6 +240,28 @@ function Header({ activeTab, setActiveTab, onHistoryClick, user, onToggleStatus,
 }
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+
+const getGoogleMapsUrl = (item, driverLocation, driverProfile) => {
+  if (!item) return "";
+  const startLat = driverLocation?.lat || driverLocation?.latitude || driverProfile?.currentLocation?.latitude || item.ambulance?.currentLocation?.latitude || item.ambulance?.latitude;
+  const startLng = driverLocation?.lng || driverLocation?.longitude || driverProfile?.currentLocation?.longitude || item.ambulance?.currentLocation?.longitude || item.ambulance?.longitude;
+  const isAfterPickup = item.status === "IN_PROGRESS" || ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(item.status);
+  let dest = "";
+  if (isAfterPickup) {
+    if (item.hospital) {
+      dest = encodeURIComponent(`${item.hospital.name || ""}, ${item.hospital.address || ""}, ${item.hospital.city || ""}`);
+    } else if (item.dropoffLocation) {
+      const lat = item.dropoffLocation.latitude;
+      const lng = item.dropoffLocation.longitude;
+      dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.dropoffLocation.address || "");
+    }
+  } else {
+    const lat = item.pickupLocation?.latitude || item.location?.latitude || item.pickupLocation?.lat || item.location?.lat;
+    const lng = item.pickupLocation?.longitude || item.location?.longitude || item.pickupLocation?.lng || item.location?.lng;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.pickupLocation?.address || item.location?.address || "");
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
 
 export default function AmbulanceDashboard() {
   const { user, loginUser, logoutUser } = useAuth();
@@ -849,6 +871,15 @@ export default function AmbulanceDashboard() {
                       )}
 
                       <div className="flex flex-col gap-2 pt-1.5">
+                        <a
+                          href={getGoogleMapsUrl(currentAssignment, driverLocation, user)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                        >
+                          <Navigation className="w-3.5 h-3.5" />
+                          Google Maps Navigation
+                        </a>
 
                         {currentAssignment.requestType === "EMERGENCY" && (
                           <>

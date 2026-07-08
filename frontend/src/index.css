@@ -20,3 +20,8 @@ html.dark body {
 .dark .leaflet-control-attribution {
     filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
 }
+
+/* Smooth marker movement transition for live ambulance coordinates */
+.leaflet-driver-marker, .custom-leaflet-icon {
+    transition: transform 1s ease-out !important;
+}

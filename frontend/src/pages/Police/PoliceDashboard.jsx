@@ -14,6 +14,33 @@ import { formatDate, getStatusBadgeClasses } from "../../components/admin/admin.
 import toast from "react-hot-toast";
 import EmergencyPopup from "../../components/notifications/EmergencyPopup";
 import EvidenceImageViewer from "../../components/common/EvidenceImageViewer";
+import LiveTrackingMap from "../../components/map/LiveTrackingMap";
+import { Navigation } from "lucide-react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+
+const getGoogleMapsUrl = (item, ambulanceLocations) => {
+  if (!item) return "";
+  const liveLoc = ambulanceLocations?.[item._id];
+  const startLat = liveLoc?.lat || item.ambulance?.currentLocation?.latitude || item.ambulance?.latitude;
+  const startLng = liveLoc?.lng || item.ambulance?.currentLocation?.longitude || item.ambulance?.longitude;
+  const isAfterPickup = item.status === "IN_PROGRESS" || ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(item.status);
+  let dest = "";
+  if (isAfterPickup) {
+    if (item.hospital) {
+      dest = encodeURIComponent(`${item.hospital.name || ""}, ${item.hospital.address || ""}, ${item.hospital.city || ""}`);
+    } else if (item.dropoffLocation) {
+      const lat = item.dropoffLocation.latitude;
+      const lng = item.dropoffLocation.longitude;
+      dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.dropoffLocation.address || "");
+    }
+  } else {
+    const lat = item.pickupLocation?.latitude || item.location?.latitude || item.pickupLocation?.lat || item.location?.lat;
+    const lng = item.pickupLocation?.longitude || item.location?.longitude || item.pickupLocation?.lng || item.location?.lng;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.pickupLocation?.address || item.location?.address || "");
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
 const STATUS_LABELS = {
   PENDING: "Pending",
   AMBULANCE_ACCEPTED: "In Progress",
@@ -42,6 +69,64 @@ const STAT_SEGMENTS = [
 
 const shortRef = (id) => (id ? String(id).slice(-6).toUpperCase() : "------");
 
+const ambulanceIcon = L.divIcon({
+  html: `<div class="relative flex items-center justify-center">
+    <span class="absolute inline-flex h-full w-full rounded-full bg-red-405 opacity-75 animate-ping"></span>
+    <div class="relative bg-white dark:bg-slate-800 rounded-full p-2 shadow-lg border-2 border-red-500 flex items-center justify-center text-red-600">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6">
+        <path d="M3 16V8a1 1 0 0 1 1-1h9l4 4h3a1 1 0 0 1 1 1v4"></path>
+        <path d="M3 16h17"></path>
+        <circle cx="7" cy="18" r="1.5"></circle>
+        <circle cx="17" cy="18" r="1.5"></circle>
+        <path d="M9 9.5v3M7.5 11h3"></path>
+      </svg>
+    </div>
+  </div>`,
+  className: "custom-leaflet-icon",
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+
+const patientIcon = L.divIcon({
+  html: `<div class="relative flex items-center justify-center">
+    <span class="absolute inline-flex h-full w-full rounded-full bg-blue-450 opacity-75 animate-ping"></span>
+    <div class="relative bg-white dark:bg-slate-800 rounded-full p-2 shadow-lg border-2 border-blue-500 flex items-center justify-center text-blue-600">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6">
+        <circle cx="12" cy="8" r="3.5"></circle>
+        <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"></path>
+      </svg>
+    </div>
+  </div>`,
+  className: "custom-leaflet-icon",
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+
+function FitBounds({ cases, ambulanceLocations }) {
+  const map = useMap();
+  useEffect(() => {
+    const points = [];
+    cases.filter(c => !["COMPLETED", "CANCELLED"].includes(c.status)).forEach(c => {
+      const ambLoc = ambulanceLocations[c._id];
+      const patLoc = c.location;
+      const ambLat = ambLoc?.lat || c.ambulance?.currentLocation?.latitude;
+      const ambLng = ambLoc?.lng || c.ambulance?.currentLocation?.longitude;
+      const patLat = patLoc?.lat || patLoc?.latitude;
+      const patLng = patLoc?.lng || patLoc?.longitude;
+      
+      if (ambLat && ambLng) points.push([ambLat, ambLng]);
+      if (patLat && patLng) points.push([patLat, patLng]);
+    });
+
+    if (points.length >= 2) {
+      map.fitBounds(points, { padding: [50, 50] });
+    } else if (points.length === 1) {
+      map.setView(points[0], 15);
+    }
+  }, [map, cases, ambulanceLocations]);
+  return null;
+}
+
 export default function PoliceDashboard() {
   const { user } = useAuth();
   const [cases, setCases] = useState([]);
@@ -50,6 +135,12 @@ export default function PoliceDashboard() {
   const [selectedCase, setSelectedCase] = useState(null);
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [popupNotifications, setPopupNotifications] = useState([]);
+  
+  // Sockets & Location states
+  const [ambulanceLocations, setAmbulanceLocations] = useState({});
+  const [trackingCase, setTrackingCase] = useState(null);
+  const socketRef = useRef(null);
+
   const alarmRef = useRef(new Audio("/sounds/emergency-alert.mp3"));
   const alarmTimeoutRef = useRef(null);
   const dismissPopup = useCallback((id) => {
@@ -112,19 +203,33 @@ export default function PoliceDashboard() {
 
     const socketUrl = API_URL || window.location.origin;
     const socket = io(socketUrl, { withCredentials: true });
+    socketRef.current = socket;
     socket.emit("join_police", {});
 
     socket.on("police_new_case", (data) => {
 
-      startPoliceAlert();
-
-      if (Notification.permission === "granted") {
-        new Notification("🚓 New Emergency", {
-          body: "A new emergency requires police assistance.",
-          icon: "/logo.png",
-          requireInteraction: true,
-        });
+      if (data.hospitalSelected) {
+        // Hospital was selected by driver — informational update only, no siren
+        const hospitalName = data.request?.hospital?.name || "a hospital";
+        if (Notification.permission === "granted") {
+          new Notification("🏥 Hospital Selected", {
+            body: `🚑 Driver selected ${hospitalName}`,
+            icon: "/logo.png",
+            requireInteraction: false,
+          });
+        }
+      } else {
+        // Brand new emergency — play siren + full notification
+        startPoliceAlert();
+        if (Notification.permission === "granted") {
+          new Notification("🚓 New Emergency", {
+            body: "A new emergency requires police assistance.",
+            icon: "/logo.png",
+            requireInteraction: true,
+          });
+        }
       }
+
       setCases((prev) => {
         if (prev.some((c) => c._id === data.request._id)) {
           if (data.hospitalSelected) {
@@ -148,11 +253,38 @@ export default function PoliceDashboard() {
       );
     });
 
+    socket.on("ambulance_location", (data) => {
+      setAmbulanceLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude },
+      }));
+    });
+
     return () => {
       stopPoliceAlert();
       socket.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!socketRef.current || cases.length === 0) return;
+    cases.forEach(c => {
+      if (c.status !== "COMPLETED" && c.status !== "CANCELLED") {
+        socketRef.current.emit("track_request", { requestId: c._id });
+      }
+    });
+  }, [cases]);
+
+  const handleLiveTrackClick = (c) => {
+    setTrackingCase(c);
+    if (socketRef.current) {
+      socketRef.current.emit("track_request", { requestId: c._id });
+    }
+  };
+
+  const handleCloseTracking = () => {
+    setTrackingCase(null);
+  };
 
   const handleStatusChange = async (caseId, newStatus) => {
     try {
@@ -264,6 +396,67 @@ export default function PoliceDashboard() {
           })}
         </div>
 
+        {/* Live Map Panel */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+              <Navigation className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-gray-900 dark:text-white">Live Operations Map</h3>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Real-time status of active cases and ambulance locations</p>
+            </div>
+          </div>
+
+          <div className="h-[400px] rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 relative z-0">
+            <MapContainer 
+              center={[20.5937, 78.9629]} 
+              zoom={13} 
+              style={{ height: '100%', width: '100%' }}
+              zoomControl={false}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+              <FitBounds cases={cases} ambulanceLocations={ambulanceLocations} />
+              {cases.filter(c => !["COMPLETED", "CANCELLED"].includes(c.status)).map(c => {
+                const ambLoc = ambulanceLocations[c._id];
+                const patLoc = c.location;
+                const ambLat = ambLoc?.lat || c.ambulance?.currentLocation?.latitude;
+                const ambLng = ambLoc?.lng || c.ambulance?.currentLocation?.longitude;
+                const patLat = patLoc?.lat || patLoc?.latitude;
+                const patLng = patLoc?.lng || patLoc?.longitude;
+
+                return (
+                  <div key={c._id}>
+                    {patLat && patLng && (
+                      <Marker position={[patLat, patLng]} icon={patientIcon}>
+                        <Popup>
+                          <div className="p-1">
+                            <p className="font-bold text-xs">Patient: {c.user?.name || "Anonymous"}</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5">Status: {c.status}</p>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+                    {ambLat && ambLng && (
+                      <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
+                        <Popup>
+                          <div className="p-1">
+                            <p className="font-bold text-xs">Ambulance: {c.ambulance?.name || "Unit"}</p>
+                            <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {c.ambulance?.vehicleNumber}</p>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+                  </div>
+                );
+              })}
+            </MapContainer>
+          </div>
+        </div>
+
         {/* Recent Cases */}
         <div className="space-y-4">
           <div className="flex flex-wrap items-end justify-between gap-2">
@@ -371,6 +564,14 @@ export default function PoliceDashboard() {
                       >
                         Details
                       </button>
+                      {c.ambulance && c.status !== "COMPLETED" && c.status !== "CANCELLED" && (
+                        <button
+                          onClick={() => handleLiveTrackClick(c)}
+                          className="rounded-lg border border-blue-200 bg-blue-50 text-blue-600 px-3 py-1.5 text-xs font-semibold hover:bg-blue-100 transition dark:border-blue-800/40 dark:bg-blue-500/10 dark:text-blue-300"
+                        >
+                          Live Track
+                        </button>
+                      )}
                       {c.status !== "COMPLETED" && (
                         <button
                           onClick={() => handleStatusChange(c._id, "COMPLETED")}
@@ -402,6 +603,113 @@ export default function PoliceDashboard() {
             />
           </div>
           <AdminDetailGrid data={getCaseDetails(selectedCase)} />
+          {selectedCase.ambulance && (
+            <div className="mt-6 flex justify-end gap-3">
+              <a
+                href={getGoogleMapsUrl(selectedCase, ambulanceLocations)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+              >
+                <Navigation className="h-4 w-4" />
+                Google Maps Navigation
+              </a>
+            </div>
+          )}
+        </AdminModal>
+      )}
+
+      {/* Live tracking modal for police */}
+      {trackingCase && (
+        <AdminModal
+          title="Dispatch Mission Control"
+          subtitle={`Route tracking for ${trackingCase.user?.name || "Patient Incident"}`}
+          onClose={handleCloseTracking}
+        >
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              <div className="lg:col-span-2 h-[400px] w-full overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative z-0">
+                <LiveTrackingMap
+                  userLocation={trackingCase.location ? { lat: trackingCase.location.latitude, lng: trackingCase.location.longitude } : null}
+                  driverLocation={
+                    ambulanceLocations[trackingCase._id]
+                      ? { lat: ambulanceLocations[trackingCase._id].lat, lng: ambulanceLocations[trackingCase._id].lng }
+                      : trackingCase.ambulance?.currentLocation
+                      ? { lat: trackingCase.ambulance.currentLocation.latitude, lng: trackingCase.ambulance.currentLocation.longitude }
+                      : null
+                  }
+                  height="100%"
+                />
+              </div>
+
+              <div className="flex flex-col justify-between bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-[0.25em] text-gray-405">Incident Details</h4>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400">PATIENT NAME</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-gray-100">{trackingCase.user?.name || "Anonymous Patient"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-450">AMBULANCE FLEET</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-gray-105">{trackingCase.ambulance?.name || "Awaiting dispatch name"}</p>
+                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{trackingCase.ambulance?.vehicleNumber || "License Tag"}</span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-405">CURRENT POSITION</p>
+                      {ambulanceLocations[trackingCase._id] ? (
+                        <p className="text-xs font-extrabold text-blue-500 animate-pulse">
+                          {ambulanceLocations[trackingCase._id].lat.toFixed(5)}, {ambulanceLocations[trackingCase._id].lng.toFixed(5)}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-semibold text-gray-400">Awaiting initial GPS ping</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 text-blue-650 text-[10px] font-black uppercase tracking-widest border border-blue-505/20">
+                    Live Signal Connecting
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 border-t border-gray-100 dark:border-gray-808/85 pt-4">
+              <div className="rounded-xl border border-gray-105 bg-gray-50/60 p-4 dark:border-gray-805 dark:bg-gray-900/60">
+                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-gray-405">Incident Type</p>
+                <p className="mt-1 text-sm font-extrabold text-gray-800 dark:text-gray-205">{trackingCase.requestType || "Emergency"}</p>
+              </div>
+              <div className="rounded-xl border border-gray-105 bg-gray-55/60 p-4 dark:border-gray-805 dark:bg-gray-900/60">
+                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-gray-405">Ambulance Team</p>
+                <p className="mt-1 text-sm font-extrabold text-gray-800 dark:text-gray-205">{trackingCase.ambulance?.name || "Dispatch team"}</p>
+              </div>
+              <div className="rounded-xl border border-gray-105 bg-gray-55/60 p-4 dark:border-gray-805 dark:bg-gray-900/60">
+                <p className="text-[9px] font-black uppercase tracking-[0.22em] text-gray-405">Destination</p>
+                <p className="mt-1 text-sm font-extrabold text-gray-800 dark:text-gray-250">{trackingCase.hospital?.name || "Awaiting Assignment"}</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-105 dark:border-gray-808/80">
+              <a
+                href={getGoogleMapsUrl(trackingCase, ambulanceLocations)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+              >
+                <Navigation className="h-4 w-4" />
+                Google Maps Navigation
+              </a>
+              <button
+                type="button"
+                onClick={handleCloseTracking}
+                className="rounded-xl bg-slate-900 hover:bg-black dark:bg-slate-200 dark:hover:bg-white px-5 py-2.5 text-sm font-bold text-white dark:text-slate-950 transition-colors shadow-sm"
+              >
+                Close Tracking Dashboard
+              </button>
+            </div>
+          </div>
         </AdminModal>
       )}
 

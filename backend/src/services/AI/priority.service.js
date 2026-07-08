@@ -25,11 +25,9 @@ export const calculatePriority = (aiAnalysis) => {
     );
 
     // Ask for confirmation if AI confidence is below 60%
-    // OR AI predicts it is a non-emergency
-    const warningRequired =
-        confidence < 0.60 ||
-        aiAnalysis.predicted_class === "non_emergency";
-
+    // Ask for confirmation only when AI is uncertain
+    // and also believes it may not be an emergency.
+    const warningRequired = confidence < 0.60;
     return {
         priority,
         warningRequired,

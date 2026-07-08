@@ -13,11 +13,13 @@ import {
     assignHospital,
     completeRequest,
     getEmergencyDetails,
-    markArrived
+    markArrived,
+    getUserEmergencies
 } from "../controllers/emergency.controller.js";
 import optionalAuth from "../middlewares/optionalAuth.middleware.js";
 const router = express.Router();
 const ambulanceDriverOnly = requireRoles("ambulance_driver", "ambulance");
+router.get("/", authMiddleware, getUserEmergencies);
 router.post("/precheck", precheckEmergency);
 router.post("/", optionalAuth, createEmergencyRequest);
 router.post("/:id/evidence", optionalAuth, uploadEvidence);

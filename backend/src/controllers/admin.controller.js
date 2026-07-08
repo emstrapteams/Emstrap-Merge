@@ -17,7 +17,8 @@ const getBookingModel = () => {
 };
 const emergencyPopulation = [
     { path: "user", select: "name email mobile city" },
-    { path: "ambulance", select: "name email mobile vehicleNumber" }
+    { path: "ambulance", select: "name email mobile vehicleNumber" },
+    { path: "hospital", select: "name address city mobile email" }
 ];
 
 const bookingPopulation = [
@@ -241,7 +242,7 @@ export const getAllUsers = async (req, res) => {
 
 export const createUser = async (req, res) => {
     try {
-       
+
         const name = String(req.body?.name || "").trim();
         const email = String(req.body?.email || "").trim().toLowerCase();
         const password = String(req.body?.password || "");
@@ -335,7 +336,7 @@ export const createUser = async (req, res) => {
                 }
             }
         }
-        
+
 
         return res.status(201).json({
             success: true,
@@ -368,7 +369,7 @@ export const updateUserRole = async (req, res) => {
     try {
         const { id } = req.params;
         const { role } = req.body;
-        
+
         if (!validRoles.includes(role)) {
             return res.status(400).json({ success: false, message: "Invalid role specified" });
         }
@@ -412,7 +413,7 @@ export const updateUserRole = async (req, res) => {
 };
 
 export const updateUser = async (req, res) => {
-   
+
     try {
         const { id } = req.params;
         const updatePayload = {};
@@ -514,7 +515,7 @@ export const getAllEmergencies = async (req, res) => {
         const emergencies = await Emergency.find()
             .populate(emergencyPopulation)
             .sort({ createdAt: -1 });
-            
+
         res.status(200).json({ success: true, emergencies });
     } catch (error) {
         res.status(500).json({ success: false, message: "Error fetching emergencies", error: error.message });

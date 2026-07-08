@@ -19,8 +19,14 @@ import {
   getOverviewStats,
   getAIStats,
   getErrorMessage,
+  getAllEmergencies,
+  getAllAdminBookings,
+  API_URL,
 } from "../../services/api";
 import AIEmergencyPanel from "../../components/admin/AIEmergencyPanel";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import { io } from "socket.io-client";
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const overviewItems = [
@@ -198,12 +204,154 @@ function MetricChart({ title, data, dataKey, stroke, iconBg, iconColor }) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 
+const ambulanceIcon = L.divIcon({
+  html: `<div class="relative flex items-center justify-center">
+    <span class="absolute inline-flex h-full w-full rounded-full bg-red-405 opacity-75 animate-ping"></span>
+    <div class="relative bg-white dark:bg-slate-800 rounded-full p-2 shadow-lg border-2 border-red-500 flex items-center justify-center text-red-600">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6">
+        <path d="M3 16V8a1 1 0 0 1 1-1h9l4 4h3a1 1 0 0 1 1 1v4"></path>
+        <path d="M3 16h17"></path>
+        <circle cx="7" cy="18" r="1.5"></circle>
+        <circle cx="17" cy="18" r="1.5"></circle>
+        <path d="M9 9.5v3M7.5 11h3"></path>
+      </svg>
+    </div>
+  </div>`,
+  className: "custom-leaflet-icon",
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+
+const patientIcon = L.divIcon({
+  html: `<div class="relative flex items-center justify-center">
+    <span class="absolute inline-flex h-full w-full rounded-full bg-blue-450 opacity-75 animate-ping"></span>
+    <div class="relative bg-white dark:bg-slate-800 rounded-full p-2 shadow-lg border-2 border-blue-500 flex items-center justify-center text-blue-600">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6">
+        <circle cx="12" cy="8" r="3.5"></circle>
+        <path d="M5 20c0-3.5 3-6 7-6s7 2.5 7 6"></path>
+      </svg>
+    </div>
+  </div>`,
+  className: "custom-leaflet-icon",
+  iconSize: [44, 44],
+  iconAnchor: [22, 22],
+});
+
+function FitBounds({ activeEmergencies, activeBookings, ambulanceLocations, patientLocations }) {
+  const map = useMap();
+  useEffect(() => {
+    const points = [];
+    
+    activeEmergencies.forEach(e => {
+      const ambLoc = ambulanceLocations[e._id];
+      const patLoc = patientLocations[e._id] || e.location;
+      const ambLat = ambLoc?.lat || e.ambulance?.currentLocation?.latitude;
+      const ambLng = ambLoc?.lng || e.ambulance?.currentLocation?.longitude;
+      const patLat = patLoc?.lat || patLoc?.latitude;
+      const patLng = patLoc?.lng || patLoc?.longitude;
+      
+      if (ambLat && ambLng) points.push([ambLat, ambLng]);
+      if (patLat && patLng) points.push([patLat, patLng]);
+    });
+
+    activeBookings.forEach(b => {
+      const ambLoc = ambulanceLocations[b._id];
+      const patLoc = patientLocations[b._id] || b.pickupLocation;
+      const ambLat = ambLoc?.lat || b.ambulance?.currentLocation?.latitude;
+      const ambLng = ambLoc?.lng || b.ambulance?.currentLocation?.longitude;
+      const patLat = patLoc?.lat || patLoc?.latitude;
+      const patLng = patLoc?.lng || patLoc?.longitude;
+      
+      if (ambLat && ambLng) points.push([ambLat, ambLng]);
+      if (patLat && patLng) points.push([patLat, patLng]);
+    });
+
+    if (points.length >= 2) {
+      map.fitBounds(points, { padding: [50, 50] });
+    } else if (points.length === 1) {
+      map.setView(points[0], 15);
+    }
+  }, [map, activeEmergencies, activeBookings, ambulanceLocations, patientLocations]);
+  return null;
+}
+
 export default function AdminDashboard() {
   const [selectedRange, setSelectedRange] = useState("1D");
   const [chartData, setChartData]         = useState([]);
   const [stats, setStats]                 = useState(defaultStats);
   const [loading, setLoading]             = useState(true);
   const [error, setError]                 = useState("");
+
+  const [activeEmergencies, setActiveEmergencies] = useState([]);
+  const [activeBookings, setActiveBookings] = useState([]);
+  const [ambulanceLocations, setAmbulanceLocations] = useState({});
+  const [patientLocations, setPatientLocations] = useState({});
+
+  useEffect(() => {
+    const socketUrl = API_URL || window.location.origin;
+    const socket = io(socketUrl, { withCredentials: true });
+
+    socket.on("ambulance_location", (data) => {
+      setAmbulanceLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude },
+      }));
+    });
+
+    socket.on("user_location", (data) => {
+      setPatientLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude },
+      }));
+    });
+
+    socket.emit("join_police", {});
+    
+    socket.on("police_new_case", (data) => {
+      if (data.request) {
+        setActiveEmergencies((prev) => {
+          if (prev.some(e => e._id === data.request._id)) {
+            // Update existing entry (e.g. hospital now assigned)
+            return prev.map(e => e._id === data.request._id ? { ...e, ...data.request } : e);
+          }
+          return [data.request, ...prev];
+        });
+        socket.emit("track_request", { requestId: data.request._id });
+      }
+    });
+
+    socket.on("police_alert", (data) => {
+      if (data.request) {
+        setActiveEmergencies((prev) =>
+          prev.map(e => e._id === data.request._id ? { ...e, ...data.request } : e)
+        );
+      }
+    });
+
+    const fetchActiveData = async () => {
+      try {
+        const emRes = await getAllEmergencies();
+        const bkRes = await getAllAdminBookings();
+        
+        const activeEms = (emRes?.emergencies || []).filter(e => !["COMPLETED", "CANCELLED"].includes(e.status));
+        const activeBks = (bkRes?.bookings || bkRes?.data || []).filter(b => !["COMPLETED", "CANCELLED"].includes(b.status));
+        
+        setActiveEmergencies(activeEms);
+        setActiveBookings(activeBks);
+        
+        activeEms.forEach(e => socket.emit("track_request", { requestId: e._id }));
+        activeBks.forEach(b => socket.emit("track_request", { requestId: b._id }));
+      } catch (err) {
+        console.error("Failed to load active cases for admin map", err);
+      }
+    };
+    
+    fetchActiveData();
+
+    return () => {
+      socket.close();
+    };
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -252,6 +400,113 @@ export default function AdminDashboard() {
         ))}
       </div>
       <AIEmergencyPanel />
+
+      {/* Live Map Panel */}
+      <AdminSurface className="mt-6 p-5">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-8 w-8 rounded-xl bg-indigo-100 dark:bg-indigo-900/40 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6">
+              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" />
+              <circle cx="12" cy="10" r="3" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-base font-black text-gray-900 dark:text-white">Live Operations Map</h2>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Real-time GPS tracking for active emergencies and booking routes</p>
+          </div>
+        </div>
+
+        <div className="h-[400px] rounded-xl overflow-hidden border border-gray-150 dark:border-gray-800 relative z-0">
+          <MapContainer 
+            center={[20.5937, 78.9629]} 
+            zoom={5} 
+            style={{ height: '100%', width: '100%' }}
+            zoomControl={false}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            />
+            <FitBounds 
+              activeEmergencies={activeEmergencies} 
+              activeBookings={activeBookings} 
+              ambulanceLocations={ambulanceLocations} 
+              patientLocations={patientLocations} 
+            />
+            
+            {activeEmergencies.map(e => {
+              const ambLoc = ambulanceLocations[e._id];
+              const patLoc = patientLocations[e._id] || e.location;
+              const ambLat = ambLoc?.lat || e.ambulance?.currentLocation?.latitude;
+              const ambLng = ambLoc?.lng || e.ambulance?.currentLocation?.longitude;
+              const patLat = patLoc?.lat || patLoc?.latitude;
+              const patLng = patLoc?.lng || patLoc?.longitude;
+
+              return (
+                <div key={e._id}>
+                  {patLat && patLng && (
+                    <Marker position={[patLat, patLng]} icon={patientIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Emergency Patient: {e.user?.name || "Anonymous"}</p>
+                          <p className="text-[10px] text-gray-550 mt-0.5">Severity: {e.aiAnalysis?.severity || "N/A"}</p>
+                          <p className="text-[10px] text-gray-500">Status: {e.status}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                  {ambLat && ambLng && (
+                    <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Emergency Ambulance: {e.ambulance?.name || "Unit"}</p>
+                          <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {e.ambulance?.vehicleNumber}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                </div>
+              );
+            })}
+
+            {activeBookings.map(b => {
+              const ambLoc = ambulanceLocations[b._id];
+              const patLoc = patientLocations[b._id] || b.pickupLocation;
+              const ambLat = ambLoc?.lat || b.ambulance?.currentLocation?.latitude;
+              const ambLng = ambLoc?.lng || b.ambulance?.currentLocation?.longitude;
+              const patLat = patLoc?.lat || patLoc?.latitude;
+              const patLng = patLoc?.lng || patLoc?.longitude;
+
+              return (
+                <div key={b._id}>
+                  {patLat && patLng && (
+                    <Marker position={[patLat, patLng]} icon={patientIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Booking Pickup: {b.user?.name || "User"}</p>
+                          <p className="text-[10px] text-gray-550 mt-0.5">Address: {b.pickupLocation?.address}</p>
+                          <p className="text-[10px] text-gray-500">Status: {b.status}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                  {ambLat && ambLng && (
+                    <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Booking Ambulance: {b.ambulance?.name || "Unit"}</p>
+                          <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {b.ambulance?.vehicleNumber}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                </div>
+              );
+            })}
+          </MapContainer>
+        </div>
+      </AdminSurface>
+
       {/* Combined chart */}
       <AdminSurface className="mt-6 p-5">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-5">

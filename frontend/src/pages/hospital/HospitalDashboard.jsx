@@ -5,7 +5,7 @@ import { API_URL, getAlerts, getErrorMessage, getStats, updateHospitalAlertStatu
 import AdminDetailGrid from "../../components/admin/AdminDetailGrid";
 import AdminModal from "../../components/admin/AdminModal";
 import { formatDate, getStatusBadgeClasses } from "../../components/admin/admin.utils";
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import EmergencyPopup from "../../components/notifications/EmergencyPopup";
 import { useAuth } from "../../context/AuthContext";
@@ -23,7 +23,9 @@ import {
   Zap,
   Clock,
   CheckCircle,
+  Navigation,
 } from "lucide-react";
+import LiveTrackingMap from "../../components/map/LiveTrackingMap";
 import {
   getHospitalById,
   updateEmergencyBeds,
@@ -64,8 +66,60 @@ const patientIcon = L.divIcon({
   iconAnchor: [22, 22],
 });
 
+const getGoogleMapsUrl = (item, ambulanceLocations) => {
+  if (!item) return "";
+  const liveLoc = ambulanceLocations?.[item._id];
+  const startLat = liveLoc?.lat || item.ambulance?.currentLocation?.latitude || item.ambulance?.latitude;
+  const startLng = liveLoc?.lng || item.ambulance?.currentLocation?.longitude || item.ambulance?.longitude;
+  const isAfterPickup = item.status === "IN_PROGRESS" || ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(item.status);
+  let dest = "";
+  if (isAfterPickup) {
+    if (item.hospital) {
+      dest = encodeURIComponent(`${item.hospital.name || ""}, ${item.hospital.address || ""}, ${item.hospital.city || ""}`);
+    } else if (item.dropoffLocation) {
+      const lat = item.dropoffLocation.latitude;
+      const lng = item.dropoffLocation.longitude;
+      dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.dropoffLocation.address || "");
+    }
+  } else {
+    const lat = item.pickupLocation?.latitude || item.location?.latitude || item.pickupLocation?.lat || item.location?.lat;
+    const lng = item.pickupLocation?.longitude || item.location?.longitude || item.pickupLocation?.lng || item.location?.lng;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.pickupLocation?.address || item.location?.address || "");
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
+
+function FitBounds({ alerts, ambulanceLocations, patientLocations }) {
+  const map = useMap();
+  useEffect(() => {
+    const points = [];
+    alerts.filter(alert => !["COMPLETED", "CANCELLED"].includes(alert.status)).forEach(alert => {
+      const ambLoc = ambulanceLocations[alert._id];
+      const patLoc = patientLocations[alert._id] || alert.location;
+      const ambLat = ambLoc?.lat || alert.ambulance?.currentLocation?.latitude;
+      const ambLng = ambLoc?.lng || alert.ambulance?.currentLocation?.longitude;
+      const patLat = patLoc?.lat || patLoc?.latitude;
+      const patLng = patLoc?.lng || patLoc?.longitude;
+      
+      if (ambLat && ambLng) points.push([ambLat, ambLng]);
+      if (patLat && patLng) points.push([patLat, patLng]);
+    });
+
+    if (points.length >= 2) {
+      map.fitBounds(points, { padding: [50, 50] });
+    } else if (points.length === 1) {
+      map.setView(points[0], 15);
+    }
+  }, [map, alerts, ambulanceLocations, patientLocations]);
+  return null;
+}
+
 export default function HospitalDashboard() {
   const { user } = useAuth();
+  const isAssignedHospital = (alert) =>
+    alert.hospital?._id?.toString() === user?._id?.toString() ||
+    alert.hospital?.toString() === user?._id?.toString();
+
   const [alerts, setAlerts] = useState([]);
   const [stats, setStats] = useState({
     totalAlerts: 0,
@@ -77,6 +131,8 @@ export default function HospitalDashboard() {
   const [trackingAlert, setTrackingAlert] = useState(null);
   const [selectedFilter, setSelectedFilter] = useState("all");
   const [ambulanceLocations, setAmbulanceLocations] = useState({});
+  const [patientLocations, setPatientLocations] = useState({});
+  const socketRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [popupNotifications, setPopupNotifications] = useState([]);
@@ -89,6 +145,13 @@ export default function HospitalDashboard() {
   const dismissPopup = useCallback((id) => {
     setPopupNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
+  const handleLiveTrackClick = (alert) => {
+    setTrackingAlert(alert);
+    if (socketRef.current && alert?._id) {
+      socketRef.current.emit("track_request", { requestId: alert._id });
+    }
+  };
+
   useEffect(() => {
     alarmRef.current.loop = false;
     alarmRef.current.volume = 1;
@@ -149,6 +212,7 @@ export default function HospitalDashboard() {
 
     const socketUrl = API_URL || window.location.origin;
     const newSocket = io(socketUrl, { withCredentials: true });
+    socketRef.current = newSocket;
 
     if (user?._id) {
       newSocket.emit("join_hospital", { hospitalId: user._id });
@@ -157,15 +221,31 @@ export default function HospitalDashboard() {
     }
 
     newSocket.on("hospital_alert", (data) => {
-      startHospitalAlert();
+      const isNewEmergency = data.request?.requestType === "EMERGENCY" && data.request?.status === "PENDING";
 
-      if (Notification.permission === "granted") {
-        new Notification("🏥 New Emergency", {
-          body: "A new emergency requires hospital attention.",
-          icon: "/logo.png",
-          requireInteraction: true,
-        });
+      if (data.hospitalSelected) {
+        // Selected hospital receives "Ambulance Incoming" notification
+        startHospitalAlert();
+        if (Notification.permission === "granted") {
+          new Notification("🚑 Ambulance Incoming", {
+            body: "An ambulance is bringing a patient to your hospital.",
+            icon: "/logo.png",
+            requireInteraction: true,
+          });
+        }
+      } else if (isNewEmergency) {
+        // All hospitals receive "New Emergency" notification
+        startHospitalAlert();
+        if (Notification.permission === "granted") {
+          new Notification("🚨 New Emergency", {
+            body: "A new emergency requires hospital attention.",
+            icon: "/logo.png",
+            requireInteraction: true,
+          });
+        }
       }
+      // isLite=true informational updates (e.g. other hospitals' updates) are silent
+
       setAlerts((prev) => {
         const exists = prev.find((a) => a._id === data.request._id);
         if (exists) {
@@ -189,11 +269,28 @@ export default function HospitalDashboard() {
       }));
     });
 
+    newSocket.on("user_location", (data) => {
+      setPatientLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude },
+      }));
+    });
+
     return () => {
       stopHospitalAlert();
       newSocket.close();
+      socketRef.current = null;
     };
   }, [user?._id]);
+
+  useEffect(() => {
+    if (!socketRef.current || alerts.length === 0) return;
+    alerts.forEach(alert => {
+      if (alert.status !== "COMPLETED" && alert.status !== "CANCELLED") {
+        socketRef.current.emit("track_request", { requestId: alert._id });
+      }
+    });
+  }, [alerts]);
   useEffect(() => {
     const fetchHospitalBeds = async () => {
       try {
@@ -490,6 +587,67 @@ export default function HospitalDashboard() {
         })}
       </div>
 
+      {/* Live Map monitoring section */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900 shadow-sm">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <LayoutDashboard className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-black text-gray-900 dark:text-white">Live Operations Map</h3>
+            <p className="text-xs text-gray-400 dark:text-gray-500">Real-time status of inbound ambulances and patient locations</p>
+          </div>
+        </div>
+
+        <div className="h-[400px] rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 relative z-0">
+          <MapContainer 
+            center={[20.5937, 78.9629]} 
+            zoom={13} 
+            style={{ height: '100%', width: '100%' }}
+            zoomControl={false}
+          >
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            />
+            <FitBounds alerts={alerts} ambulanceLocations={ambulanceLocations} patientLocations={patientLocations} />
+            {alerts.filter(alert => !["COMPLETED", "CANCELLED"].includes(alert.status)).map(alert => {
+              const ambLoc = ambulanceLocations[alert._id];
+              const patLoc = patientLocations[alert._id] || alert.location;
+              const ambLat = ambLoc?.lat || alert.ambulance?.currentLocation?.latitude;
+              const ambLng = ambLoc?.lng || alert.ambulance?.currentLocation?.longitude;
+              const patLat = patLoc?.lat || patLoc?.latitude;
+              const patLng = patLoc?.lng || patLoc?.longitude;
+
+              return (
+                <div key={alert._id}>
+                  {patLat && patLng && (
+                    <Marker position={[patLat, patLng]} icon={patientIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Patient: {alert.user?.name || "Anonymous"}</p>
+                          <p className="text-[10px] text-gray-500 mt-0.5">Status: {alert.status}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                  {ambLat && ambLng && (
+                    <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
+                      <Popup>
+                        <div className="p-1">
+                          <p className="font-bold text-xs">Ambulance: {alert.ambulance?.name || "Unit"}</p>
+                          <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {alert.ambulance?.vehicleNumber}</p>
+                        </div>
+                      </Popup>
+                    </Marker>
+                  )}
+                </div>
+              );
+            })}
+          </MapContainer>
+        </div>
+      </div>
+
       {/* CASES LOG WORKSPACE */}
       <div className="space-y-4">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -681,7 +839,7 @@ export default function HospitalDashboard() {
                             {alert.ambulance && alert.status !== "COMPLETED" && (
                               <button
                                 type="button"
-                                onClick={() => setTrackingAlert(alert)}
+                                onClick={() => handleLiveTrackClick(alert)}
                                 className="inline-flex items-center gap-1.5 rounded-xl bg-blue-55/80 hover:bg-blue-100 text-blue-600 dark:bg-blue-955/40 dark:hover:bg-blue-900/40 dark:text-blue-400 px-3.5 py-2.5 text-xs font-bold border border-blue-202 dark:border-blue-802 transition-all shadow-sm"
                               >
                                 <SatelliteIcon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -690,7 +848,7 @@ export default function HospitalDashboard() {
                             )}
                             
                             {/* Resolve Button */}
-                            {alert.status !== "COMPLETED" && (
+                            {alert.status !== "COMPLETED" && isAssignedHospital(alert) && (
                               <button
                                 type="button"
                                 onClick={() => handleStatusUpdate(alert._id, "COMPLETED")}
@@ -793,7 +951,7 @@ export default function HospitalDashboard() {
                       {alert.ambulance && alert.status !== "COMPLETED" && (
                         <button
                           type="button"
-                          onClick={() => setTrackingAlert(alert)}
+                          onClick={() => handleLiveTrackClick(alert)}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-650 dark:bg-blue-955/40 dark:hover:bg-blue-900/40 dark:text-blue-400 py-3 text-xs font-bold transition-all"
                         >
                           <SatelliteIcon className="h-3.5 w-3.5" strokeWidth={2} />
@@ -801,7 +959,7 @@ export default function HospitalDashboard() {
                         </button>
                       )}
                       
-                      {alert.status !== "COMPLETED" && (
+                      {alert.status !== "COMPLETED" && isAssignedHospital(alert) && (
                         <button
                           type="button"
                           onClick={() => handleStatusUpdate(alert._id, "COMPLETED")}
@@ -874,57 +1032,30 @@ export default function HospitalDashboard() {
             
             {/* SPLIT PANEL: MAP & META INFO */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-              
-              {/* Leaflet Map Area */}
+                     {/* Leaflet Map Area */}
               <div className="lg:col-span-2 h-[400px] w-full overflow-hidden rounded-2xl border border-slate-205 dark:border-slate-800 shadow-sm relative z-0">
-                <MapContainer
-                  center={[trackingAlert.location?.latitude || 20.5937, trackingAlert.location?.longitude || 78.9629]}
-                  zoom={14}
-                  style={{ height: "100%", width: "100%" }}
-                  zoomControl={true}
-                >
-                  <TileLayer
-                    url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
-                    attribution="&copy; OpenStreetMap contributors &copy; CARTO"
-                  />
-
-                  {trackingAlert.location && (
-                    <Marker position={[trackingAlert.location.latitude, trackingAlert.location.longitude]} icon={patientIcon}>
-                      <Popup>
-                        <div className="p-1.5 font-sans">
-                          <p className="font-extrabold text-slate-850">Starting Location</p>
-                          <p className="text-[10px] font-semibold text-slate-500 mt-0.5">Patient dispatch call site</p>
-                        </div>
-                      </Popup>
-                    </Marker>
-                  )}
-
-                  {ambulanceLocations[trackingAlert._id] && (
-                    <>
-                      <Marker
-                        position={[ambulanceLocations[trackingAlert._id].lat, ambulanceLocations[trackingAlert._id].lng]}
-                        icon={ambulanceIcon}
-                      >
-                        <Popup>
-                          <div className="text-center font-sans">
-                            <p className="font-extrabold text-slate-855">Ambulance {trackingAlert.ambulance?.vehicleNumber}</p>
-                            <p className="text-[10px] font-black uppercase text-red-505 animate-pulse mt-0.5">Live GPS Transmitting...</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                      <Polyline
-                        positions={[
-                          [trackingAlert.location.latitude, trackingAlert.location.longitude],
-                          [ambulanceLocations[trackingAlert._id].lat, ambulanceLocations[trackingAlert._id].lng],
-                        ]}
-                        color="#3b82f6"
-                        dashArray="10, 10"
-                        weight={3}
-                        opacity={0.7}
-                      />
-                    </>
-                  )}
-                </MapContainer>
+                <LiveTrackingMap
+                  userLocation={
+                    patientLocations[trackingAlert._id]
+                      ? { lat: patientLocations[trackingAlert._id].lat, lng: patientLocations[trackingAlert._id].lng }
+                      : trackingAlert.location
+                      ? { lat: trackingAlert.location.latitude, lng: trackingAlert.location.longitude }
+                      : null
+                  }
+                  driverLocation={
+                    ambulanceLocations[trackingAlert._id]
+                      ? { lat: ambulanceLocations[trackingAlert._id].lat, lng: ambulanceLocations[trackingAlert._id].lng }
+                      : trackingAlert.ambulance?.currentLocation
+                      ? { lat: trackingAlert.ambulance.currentLocation.latitude, lng: trackingAlert.ambulance.currentLocation.longitude }
+                      : null
+                  }
+                  hospitalLocation={
+                    trackingAlert.status === "IN_PROGRESS" && trackingAlert.dropoffLocation?.latitude
+                      ? { lat: trackingAlert.dropoffLocation.latitude, lng: trackingAlert.dropoffLocation.longitude }
+                      : null
+                  }
+                  height="100%"
+                />
               </div>
 
               {/* Status Sideboard Info */}
@@ -983,6 +1114,15 @@ export default function HospitalDashboard() {
 
             {/* ACTION FOOTER */}
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-105 dark:border-slate-808/80">
+              <a
+                href={getGoogleMapsUrl(trackingAlert, ambulanceLocations)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm shadow-green-500/10 active:scale-95"
+              >
+                <Navigation className="h-4 w-4" />
+                Google Maps Navigation
+              </a>
               <button
                 type="button"
                 onClick={() => setTrackingAlert(null)}

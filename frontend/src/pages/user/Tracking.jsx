@@ -6,6 +6,52 @@ import { io } from "socket.io-client";
 import Navbar from "../../components/layout/Navbar";
 import Container from "../../components/layout/Container";
 import LiveTrackingMap from "../../components/map/LiveTrackingMap";
+import { Navigation } from "lucide-react";
+
+const getGoogleMapsUrl = (driverInfo, userLocation) => {
+  if (!driverInfo?.location) return "";
+  const startLat = driverInfo.location.lat;
+  const startLng = driverInfo.location.lng;
+  
+  // If hospitalName is set and is not "Assigning..." / "N/A", we assume patient has been picked up
+  const isAfterPickup = driverInfo.hospitalName && 
+                        driverInfo.hospitalName !== "Assigning..." && 
+                        driverInfo.hospitalName !== "N/A";
+  
+  let dest;
+  if (isAfterPickup && driverInfo.hospitalName) {
+    dest = encodeURIComponent(`${driverInfo.hospitalName}`);
+  } else {
+    dest = userLocation ? `${userLocation.lat},${userLocation.lng}` : "";
+  }
+  
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLng}&destination=${dest}&travelmode=driving`;
+};
+
+const calculateETA = (loc1, loc2) => {
+  if (!loc1?.lat || !loc1?.lng || !loc2?.lat || !loc2?.lng) {
+    return { distance: null, duration: null, text: "Calculating..." };
+  }
+  const R = 6371; // Earth radius in km
+  const dLat = ((loc2.lat - loc1.lat) * Math.PI) / 180;
+  const dLon = ((loc2.lng - loc1.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((loc1.lat * Math.PI) / 180) *
+      Math.cos((loc2.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanceKm = R * c;
+  
+  // Average traffic speed: 30 km/h
+  const durationMin = Math.round((distanceKm / 30) * 60);
+  return {
+    distance: distanceKm.toFixed(1),
+    duration: durationMin,
+    text: durationMin <= 1 ? "Arriving" : `${durationMin} mins`
+  };
+};
 
 export default function Tracking() {
   const { requestId } = useParams();
@@ -74,6 +120,11 @@ export default function Tracking() {
       navigate("/dashboard");
     });
 
+    newSocket.on("booking_cancelled", () => {
+      toast.error("This booking was cancelled.");
+      navigate("/dashboard");
+    });
+
     newSocket.on("trip_completed", () => {
       toast.success("Trip completed! Thank you for using Emstrap.");
       navigate("/dashboard");
@@ -107,6 +158,8 @@ export default function Tracking() {
       }
     };
   }, [requestId, navigate]);
+
+  const etaInfo = calculateETA(driverInfo?.location, userLocation);
 
   return (
     <>
@@ -189,13 +242,24 @@ export default function Tracking() {
 
                   <div className="pt-4 border-t dark:border-gray-800">
                     <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1.5">Current Status</p>
-                    <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/10 p-3 rounded-2xl border border-green-100 dark:border-green-900/20">
+                    <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/10 p-3 rounded-2xl border border-green-100 dark:border-green-900/20 mb-2">
                       <div className="relative">
                         <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                         <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
                       </div>
                       <span className="font-bold text-green-700 dark:text-green-400 text-sm">En Route to your location</span>
                     </div>
+                    {driverInfo?.location && (
+                      <a
+                        href={getGoogleMapsUrl(driverInfo, userLocation)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 mt-2"
+                      >
+                        <Navigation className="w-3.5 h-3.5" />
+                        Google Maps Navigation
+                      </a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -203,9 +267,11 @@ export default function Tracking() {
               <div className="bg-gradient-to-br from-blue-600 to-blue-700 rounded-3xl p-6 text-white shadow-2xl shadow-blue-500/20 relative overflow-hidden group">
                 <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-all"></div>
                 <p className="text-[10px] opacity-80 uppercase font-bold tracking-wider">Estimated Arrival</p>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <p className="text-5xl font-black tracking-tighter">{driverInfo?.eta || "5-8"}</p>
-                  <p className="font-bold opacity-90">mins</p>
+                <div className="flex flex-col mt-1">
+                  <p className="text-3xl font-black tracking-tighter">{etaInfo.text}</p>
+                  {etaInfo.distance && (
+                    <p className="text-xs opacity-90 mt-1 uppercase font-bold tracking-wider">Distance: {etaInfo.distance} km</p>
+                  )}
                 </div>
               </div>
             </div>

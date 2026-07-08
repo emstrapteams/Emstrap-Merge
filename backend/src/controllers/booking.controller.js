@@ -31,10 +31,18 @@ const isAssignedPrivateDriver = (booking, req) =>
     req.user.role === "private_driver" &&
     booking.ambulance?.toString() === req.user._id.toString();
 export const createBooking = async (req, res) => {
+    console.log("=== Inside createBooking ===");
+    console.log("req.user:", req.user ? { _id: req.user._id, role: req.user.role, email: req.user.email } : "UNDEFINED");
+    console.log("req.body:", req.body);
     
     try {
+        if (!req.user) {
+            console.log("createBooking 403: req.user is undefined/null");
+            return res.status(403).json({ success: false, message: "Authentication required to create bookings. No user context found." });
+        }
         if (!["user", "admin"].includes(req.user.role)) {
-            return res.status(403).json({ success: false, message: "Only users can create bookings" });
+            console.log("createBooking 403: user role is not allowed:", req.user.role);
+            return res.status(403).json({ success: false, message: `Access denied. Role "${req.user.role}" is not authorized to create bookings. Only "user" or "admin" roles can create bookings.` });
         }
 
         const bookingConnection = getBookingConnection();
@@ -90,66 +98,26 @@ export const getBookings = async (req, res) => {
             getBookingDbBookingModel(bookingConnection);
         const { ids: bookingUserIds } = await resolveBookingUserIds(req.user);
 
-        // Fetch regular bookings
-        const bookings = await Booking.find({ user: { $in: bookingUserIds } }).sort({ createdAt: -1 });
+        // Fetch regular bookings — populate ambulance (driver) details so the
+        // UserDashboard can display driver info and enable Google Maps navigation.
+        const bookingConnection2 = getBookingConnection();
+        const { getBookingDriverModel } = await import("../models/bookingDriver.model.js");
+        const BookingDriver = getBookingDriverModel(bookingConnection2);
 
-        // Fetch emergency requests that are NOT linked to bookings (standalone emergencies)
-        // and only show those that are PENDING or ACCEPTED
-        const standaloneEmergencies = await EmergencyRequest.find({
-            user: req.user._id,
-            requestType: "EMERGENCY"
-        }).sort({ createdAt: -1 });
+        const bookings = await Booking.find({ user: { $in: bookingUserIds } })
+            .populate({ path: "ambulance", model: BookingDriver, select: "name mobile email vehicleNumber currentLocation" })
+            .sort({ createdAt: -1 });
 
-        const mapEmergencyStatus = (status) => {
-            switch (status) {
-                case "PENDING":
-                    return "PENDING";
-
-                case "AMBULANCE_ACCEPTED":
-                case "ARRIVED_AT_LOCATION":
-                case "EN_ROUTE_TO_HOSPITAL":
-                    return "IN_PROGRESS";
-
-                case "COMPLETED":
-                    return "COMPLETED";
-
-                case "CANCELLED":
-                    return "CANCELLED";
-
-                default:
-                    return status;
-            }
-        };
-
-        // Transform emergencies to match booking-like structure for the UI
-        const transformedEmergencies = standaloneEmergencies.map(err => ({
-            _id: err._id,
-            requestId: err._id,
-            type: "emergency",
-            status: mapEmergencyStatus(err.status),
-            ambulanceType: "EMERGENCY",
-            pickupLocation: { address: "Live Emergency Location" },
-            estimatedPrice: 0,
-            createdAt: err.createdAt,
-            isEmergency: true
-        }));
-
-        // Combine and sort by date
+        // Transform bookings to match booking-like structure for the UI
         const transformedBookings = bookings.map(booking => ({
             ...booking.toObject(),
-
             type: "booking",
-
             isEmergency: false
         }));
 
-        const combined = [...transformedBookings, ...transformedEmergencies].sort(
-            (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
-        );
-
         res.status(200).json({
             success: true,
-            data: combined,
+            data: transformedBookings,
         });
     } catch (error) {
         res.status(500).json({
@@ -370,6 +338,15 @@ export const acceptBooking = async (req, res) => {
             return res.status(404).json({ success: false, message: "Booking not available" });
         }
 
+        // Notify the user tracking this booking so Tracking.jsx shows driver immediately
+        const io = getIO();
+        io.to(`request_${req.params.id}`).emit("ambulance_assigned", {
+            driverName: req.user.name || "Driver",
+            driverMobile: req.user.mobile || "",
+            vehicleNumber: req.user.vehicleNumber || "",
+            hospitalName: null,
+        });
+
         res.json({
             success: true,
             data: booking
@@ -484,6 +461,10 @@ export const completeBooking = async (req, res) => {
         booking.status = "COMPLETED";
 
         await booking.save();
+
+        // Notify the user tracking this booking that the trip is done
+        const io = getIO();
+        io.to(`request_${req.params.id}`).emit("trip_completed", { requestId: req.params.id, status: "COMPLETED" });
 
         res.status(200).json({
             success: true,

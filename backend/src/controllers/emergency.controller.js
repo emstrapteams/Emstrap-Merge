@@ -1,6 +1,6 @@
 import emergencyRequestSchema from "../models/emergencyrequest.model.js";
 import Ambulance from "../models/ambulance.model.js";
-import { getIO } from "../sockets/socket.js";
+import { getIO, activeDriverLocations, activePatientLocations } from "../sockets/socket.js";
 import cloudinary from "../config/cloudinary.js";
 import { getBookingConnection } from "../config/bookingDb.js";
 import { getBookingDbBookingModel } from "../models/bookingDbBooking.model.js";
@@ -31,7 +31,7 @@ export const assignHospital = async (req, res) => {
     }
 
     const hospital = await Hospital.findById(hospitalId);
-    
+
     if (!hospital) {
       return res.status(404).json({ success: false, message: "Hospital not found" });
     }
@@ -56,7 +56,7 @@ export const assignHospital = async (req, res) => {
         message: "Hospital assignment is only allowed for emergency requests"
       });
     }
-    
+
     if (
       existing.status !== "ARRIVED_AT_LOCATION" &&
       existing.status !== "EN_ROUTE_TO_HOSPITAL"
@@ -81,20 +81,20 @@ export const assignHospital = async (req, res) => {
 
     // Notify ONLY the specific hospital with FULL details
     io.to(`hospital_${hospitalId}`).emit("hospital_alert", { request: updated, hospitalSelected: true });
-    
+
     // Still notify all hospitals that this request is handled by a specific hospital (lite version)
-    io.to("hospital").emit("hospital_alert", { 
-      request: { 
-        _id: updated._id, 
-        status: updated.status, 
-        hospital: { _id: updated.hospital._id, name: updated.hospital.name } 
-      }, 
-      isLite: true 
+    io.to("hospital").emit("hospital_alert", {
+      request: {
+        _id: updated._id,
+        status: updated.status,
+        hospital: { _id: updated.hospital._id, name: updated.hospital.name }
+      },
+      isLite: true
     });
 
     io.to("police").emit("police_new_case", { request: updated, hospitalSelected: true });
     io.to("police").emit("police_alert", { request: updated });
-
+    io.emit("emergency_updated", updated);
     // Also update the user tracking the request
     io.to(`request_${id}`).emit("ambulance_assigned", {
       driverName: req.user.name || "Driver",
@@ -155,26 +155,97 @@ export const markArrived = async (req, res) => {
 export const getEmergencyDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    const request = await emergencyRequestSchema.findById(id)
+    let request = await emergencyRequestSchema.findById(id)
       .populate("user", "name mobile email address city")
       .populate("ambulance", "name email mobile vehicleNumber currentLocation")
       .populate("hospital", "name address city mobile email");
 
     if (!request) {
+      // Fallback: Check if it's a booking in the Booking DB
+      try {
+        const bookingConn = getBookingConnection();
+        const BookingModel = getBookingDbBookingModel(bookingConn);
+        const { getBookingUserModel } = await import("../models/bookingUser.model.js");
+        const { getBookingDriverModel } = await import("../models/bookingDriver.model.js");
+        const BookingUser = getBookingUserModel(bookingConn);
+        const BookingDriver = getBookingDriverModel(bookingConn);
+
+        const booking = await BookingModel.findById(id)
+          .populate({ path: "user", model: BookingUser, select: "name mobile email address city" })
+          .populate({ path: "ambulance", model: BookingDriver, select: "name email mobile vehicleNumber driverStatus isOnTrip" });
+
+        if (booking) {
+          let hospitalObj = null;
+          if (booking.hospital) {
+            hospitalObj = await Hospital.findById(booking.hospital).select("name email mobile address city");
+          }
+
+          const bookingObj = booking.toObject ? booking.toObject() : booking;
+          if (hospitalObj) {
+            bookingObj.hospital = hospitalObj;
+          }
+          bookingObj.requestType = "BOOKING";
+          bookingObj.location = {
+            latitude: bookingObj.pickupLocation?.latitude || 0,
+            longitude: bookingObj.pickupLocation?.longitude || 0,
+            address: bookingObj.pickupLocation?.address || ""
+          };
+          request = bookingObj;
+        }
+      } catch (bookingErr) {
+        console.error("Error looking up booking details in getEmergencyDetails:", bookingErr);
+      }
+    }
+
+    if (!request) {
       return res.status(404).json({ success: false, message: "Request not found" });
     }
 
+    // Convert request to a plain object so we can modify it
+    let plainRequest = request.toObject ? request.toObject() : request;
+
+    // Overlay cached live driver location if available
+    const liveDriver = activeDriverLocations.get(id.toString());
+    if (liveDriver && plainRequest.ambulance) {
+      if (typeof plainRequest.ambulance === "object") {
+        plainRequest.ambulance.currentLocation = {
+          latitude: liveDriver.lat,
+          longitude: liveDriver.lng
+        };
+      } else {
+        plainRequest.ambulanceLocation = {
+          latitude: liveDriver.lat,
+          longitude: liveDriver.lng
+        };
+      }
+    }
+
+    // Overlay cached live patient location if available
+    const livePatient = activePatientLocations.get(id.toString());
+    if (livePatient) {
+      plainRequest.location = {
+        latitude: livePatient.lat,
+        longitude: livePatient.lng
+      };
+    }
+
+    const requestUserObj = plainRequest.user;
+    const requestUser = requestUserObj?._id || requestUserObj;
+    const requestAmbulanceObj = plainRequest.ambulance;
+    const requestAmbulance = requestAmbulanceObj?._id || requestAmbulanceObj;
+
     const isOwner =
       req.user &&
-      request.user &&
-      request.user._id &&
-      request.user._id.toString() === req.user._id.toString();
+      requestUser &&
+      req.user._id &&
+      requestUser.toString() === req.user._id.toString();
 
     const isAssignedDriver =
       req.user &&
-      request.ambulance &&
-      request.ambulance._id &&
-      request.ambulance._id.toString() === req.user._id.toString();
+      requestAmbulance &&
+      req.user._id &&
+      requestAmbulance.toString() === req.user._id.toString();
+
     const isPrivileged =
       req.user &&
       ["admin", "police", "police_hq", "hospital", "hospital_admin"].includes(req.user.role);
@@ -183,17 +254,17 @@ export const getEmergencyDetails = async (req, res) => {
     if (!req.user) {
       return res.status(200).json({
         success: true,
-        data: request,
+        data: plainRequest,
       });
     }
 
     if (!isOwner && !isAssignedDriver && !isPrivileged) {
       return res.status(403).json({
         success: false,
-        message: "Not authorized to view this emergency",
+        message: "Not authorized to view this request",
       });
     }
-    res.status(200).json({ success: true, data: request });
+    res.status(200).json({ success: true, data: plainRequest });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -336,7 +407,7 @@ export const createEmergencyRequest = async (req, res) => {
         `Duplicate emergency blocked. Original request: ${aiResult.duplicateOf}`
       );
     }
-    
+
     // For hospitals, send a "lite" version without user details or exact location if not assigned
     const liteRequest = {
       _id: populatedRequest._id,
@@ -346,7 +417,7 @@ export const createEmergencyRequest = async (req, res) => {
       // No user details, no exact location
     };
     io.to("hospital").emit("hospital_alert", { request: liteRequest, isLite: true });
-    
+
     io.to("police").emit("police_new_case", { request: populatedRequest });
 
     res.status(201).json({
@@ -501,11 +572,11 @@ export const acceptEmergency = async (req, res) => {
       ambulance: req.user._id,
       status: "AMBULANCE_ACCEPTED"
     });
-    
+
     if (activeDriverEmergency) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "You are already handling an active emergency. Please complete or cancel it before accepting a new one." 
+      return res.status(400).json({
+        success: false,
+        message: "You are already handling an active emergency. Please complete or cancel it before accepting a new one."
       });
     }
 
@@ -518,15 +589,15 @@ export const acceptEmergency = async (req, res) => {
 
     const request = await emergencyRequestSchema.findByIdAndUpdate(
       id,
-      { 
-        status: "AMBULANCE_ACCEPTED", 
+      {
+        status: "AMBULANCE_ACCEPTED",
         ambulance: req.user._id,
         // hospital: hospitalId // REMOVED: Hospital will be assigned after arrival
       },
       { new: true }
     ).populate("user", "name mobile email address city")
-     .populate("ambulance", "name email mobile vehicleNumber")
-     .populate("hospital", "name address city mobile email");
+      .populate("ambulance", "name email mobile vehicleNumber")
+      .populate("hospital", "name address city mobile email");
 
     // Update related booking if it's a regular booking request
     if (request.requestType === "BOOKING") {
@@ -556,13 +627,13 @@ export const acceptEmergency = async (req, res) => {
     // Notify Hospitals & Police only for EMERGENCY type
     if (request.requestType === "EMERGENCY") {
       // Send lite alert to all hospitals that an ambulance is assigned
-      io.to("hospital").emit("hospital_alert", { 
-        request: { 
-          _id: request._id, 
-          status: request.status, 
-          ambulance: request.ambulance 
-        }, 
-        isLite: true 
+      io.to("hospital").emit("hospital_alert", {
+        request: {
+          _id: request._id,
+          status: request.status,
+          ambulance: request.ambulance
+        },
+        isLite: true
       });
       io.to("police").emit("police_new_case", { request });
       io.to("police").emit("police_alert", { request });
@@ -757,9 +828,9 @@ export const completeRequest = async (req, res) => {
     await request.save();
 
     // Clear activeRequest from the driver
-    await Ambulance.findByIdAndUpdate(req.user._id, { 
+    await Ambulance.findByIdAndUpdate(req.user._id, {
       activeRequest: null,
-      isOnTrip: false 
+      isOnTrip: false
     });
 
     if (request.requestType === "BOOKING") {
@@ -860,6 +931,25 @@ export const getDriverHistory = async (req, res) => {
         rejected,
         cancelled
       }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const getUserEmergencies = async (req, res) => {
+  try {
+    const emergencies = await emergencyRequestSchema.find({
+      user: req.user._id,
+      requestType: "EMERGENCY"
+    })
+      .populate("hospital", "name address city mobile email")
+      .populate("ambulance", "name email mobile vehicleNumber currentLocation")
+      .sort({ createdAt: -1 });
+
+    res.status(200).json({
+      success: true,
+      data: emergencies
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });

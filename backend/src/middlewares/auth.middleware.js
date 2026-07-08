@@ -7,6 +7,9 @@ import Ambulance from "../models/ambulance.model.js";
 import { getBookingConnection } from "../config/bookingDb.js";
 import { getBookingDriverModel } from "../models/bookingDriver.model.js";
 const authMiddleware = async (req, res, next) => {
+  console.log("=== Incoming Auth request ===");
+  console.log("Headers:", req.headers);
+  console.log("Cookies:", req.cookies);
   
   try {
     let token = req.cookies.token;
@@ -20,7 +23,10 @@ const authMiddleware = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
     }
   
+    console.log("Extracted token:", token);
+
     if (!token) {
+      console.log("Auth fail: No token provided");
       return res.status(401).json({
         success: false,
         message: "No token provided",
@@ -29,6 +35,7 @@ const authMiddleware = async (req, res, next) => {
 
     // 2️⃣ Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    console.log("Decoded JWT payload:", decoded);
     
     // ⚠️ Make sure this matches how you created token
     // If you used: jwt.sign({ id: user._id })
@@ -76,8 +83,11 @@ const authMiddleware = async (req, res, next) => {
       user = await User.findById(decoded.id).select("-password");
     }
    
+    console.log("Resolved user record:", user ? { _id: user._id, role: user.role, email: user.email } : "NULL");
+
     req.user = user;
     if (!req.user) {
+      console.log("Auth fail: Resolved user not found in DB");
       return res.status(401).json({
         success: false,
         message: "User not found",

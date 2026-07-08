@@ -1,8 +1,55 @@
 import { useEmergency } from "../../context/EmergencyContext";
 import LiveTrackingMap from "../map/LiveTrackingMap";
+import { Navigation } from "lucide-react";
+
+const calculateETA = (loc1, loc2) => {
+  if (!loc1?.lat || !loc1?.lng || !loc2?.lat || !loc2?.lng) {
+    return { distance: null, duration: null, text: "Calculating..." };
+  }
+  const R = 6371; // Earth radius in km
+  const dLat = ((loc2.lat - loc1.lat) * Math.PI) / 180;
+  const dLon = ((loc2.lng - loc1.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((loc1.lat * Math.PI) / 180) *
+      Math.cos((loc2.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanceKm = R * c;
+  
+  // Average traffic speed: 30 km/h
+  const durationMin = Math.round((distanceKm / 30) * 60);
+  return {
+    distance: distanceKm.toFixed(1),
+    duration: durationMin,
+    text: durationMin <= 1 ? "Arriving" : `${durationMin} mins`
+  };
+};
+
+const getGoogleMapsUrl = (driverInfo, userLocation) => {
+  if (!driverInfo?.location) return "";
+  const startLat = driverInfo.location.lat;
+  const startLng = driverInfo.location.lng;
+  
+  // If hospitalName is set and is not "Assigning..." / "N/A", we assume patient has been picked up
+  const isAfterPickup = driverInfo.hospitalName && 
+                        driverInfo.hospitalName !== "Assigning..." && 
+                        driverInfo.hospitalName !== "N/A";
+  
+  let dest;
+  if (isAfterPickup && driverInfo.hospitalName) {
+    dest = encodeURIComponent(`${driverInfo.hospitalName}`);
+  } else {
+    dest = userLocation ? `${userLocation.lat},${userLocation.lng}` : "";
+  }
+  
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat},${startLng}&destination=${dest}&travelmode=driving`;
+};
 
 export default function AmbulanceFound({ driverInfo, onCancel }) {
   const { location: userLocation } = useEmergency();
+  const etaInfo = calculateETA(driverInfo?.location, userLocation);
 
   return (
     <div className="flex flex-col gap-6 mt-6">
@@ -66,13 +113,30 @@ export default function AmbulanceFound({ driverInfo, onCancel }) {
                   </a>
                 </div>
               )}
+
+              {driverInfo?.location && (
+                <div className="pt-4 border-t dark:border-gray-800">
+                  <a
+                    href={getGoogleMapsUrl(driverInfo, userLocation)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5 mt-2"
+                  >
+                    <Navigation className="w-3.5 h-3.5" />
+                    Google Maps Navigation
+                  </a>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="bg-blue-600 rounded-3xl p-6 text-white shadow-xl flex justify-between items-center">
             <div>
               <p className="text-[10px] opacity-80 uppercase font-bold tracking-wider">Estimated Arrival</p>
-              <p className="text-3xl font-black">{driverInfo?.eta || "5-8 mins"}</p>
+              <p className="text-3xl font-black">{etaInfo.text}</p>
+              {etaInfo.distance && (
+                <p className="text-[10px] opacity-80 mt-1 uppercase font-bold tracking-wider">Distance: {etaInfo.distance} km</p>
+              )}
             </div>
             <div className="text-4xl">🏁</div>
           </div>

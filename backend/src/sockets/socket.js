@@ -12,6 +12,9 @@ const allowedOrigins = [
 
 // To optimize DB performance, we throttle location updates to once every 5 seconds per request
 const lastUpdateMap = new Map();
+export const activeDriverLocations = new Map();
+export const activePatientLocations = new Map();
+
 
 export const initSocket = (server) => {
   io = new Server(server, {
@@ -67,7 +70,12 @@ export const initSocket = (server) => {
     socket.on("update_location", async (data) => {
       // 1. ALWAYS broadcast in real-time (fast, no DB load)
       if (data.requestId) {
+        activeDriverLocations.set(data.requestId.toString(), {
+          lat: data.lat || data.latitude,
+          lng: data.lng || data.longitude
+        });
         io.to(`request_${data.requestId}`).emit("ambulance_location", data);
+
         
         // 2. Throttled Persist to DB (slow, every 5 seconds)
         try {
@@ -100,7 +108,12 @@ export const initSocket = (server) => {
     socket.on("update_user_location", async (data) => {
       // 1. ALWAYS broadcast in real-time
       if (data.requestId) {
+        activePatientLocations.set(data.requestId.toString(), {
+          lat: data.lat || data.latitude,
+          lng: data.lng || data.longitude
+        });
         io.to(`request_${data.requestId}`).emit("user_location", data);
+
         
         // 2. Throttled Persist to DB
         try {

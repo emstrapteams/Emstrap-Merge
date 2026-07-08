@@ -30,7 +30,8 @@ const driverIcon = new L.Icon({
   iconUrl: driverIconUrl,
   iconSize: [48, 48],
   iconAnchor: [24, 24],
-  popupAnchor: [0, -24]
+  popupAnchor: [0, -24],
+  className: "leaflet-driver-marker"
 });
 
 const userIcon = new L.Icon({
@@ -40,26 +41,66 @@ const userIcon = new L.Icon({
   popupAnchor: [0, -48]
 });
 
-// Helper component to auto-fit map bounds tightly over patient and driver
-function MapBoundsFit({ userLocation, driverLocation }) {
+const hospitalIconUrl = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48px" height="48px">
+  <path fill="#2ecc71" d="M32 0C18.7 0 8 10.7 8 24c0 18 24 40 24 40s24-22 24-40C56 10.7 45.3 0 32 0z"/>
+  <rect fill="#fff" x="28" y="12" width="8" height="24"/>
+  <rect fill="#fff" x="20" y="20" width="24" height="8"/>
+</svg>
+`);
+
+const hospitalIcon = new L.Icon({
+  iconUrl: hospitalIconUrl,
+  iconSize: [48, 48],
+  iconAnchor: [24, 48],
+  popupAnchor: [0, -48]
+});
+
+// Helper component to auto-fit map bounds tightly over patient, driver and hospital
+function MapBoundsFit({ userLocation, driverLocation, hospitalLocation }) {
   const map = useMap();
   useEffect(() => {
-    if (userLocation?.lat && driverLocation?.lat) {
-      const bounds = L.latLngBounds([
-        [userLocation.lat, userLocation.lng],
-        [driverLocation.lat, driverLocation.lng]
-      ]);
+    const points = [];
+    if (userLocation?.lat && userLocation?.lng) points.push([userLocation.lat, userLocation.lng]);
+    if (driverLocation?.lat && driverLocation?.lng) points.push([driverLocation.lat, driverLocation.lng]);
+    if (hospitalLocation?.lat && hospitalLocation?.lng) points.push([hospitalLocation.lat, hospitalLocation.lng]);
+
+    if (points.length >= 2) {
+      const bounds = L.latLngBounds(points);
       map.fitBounds(bounds, { padding: [50, 50] });
-    } else if (userLocation?.lat) {
-      map.setView([userLocation.lat, userLocation.lng], 15);
-    } else if (driverLocation?.lat) {
-      map.setView([driverLocation.lat, driverLocation.lng], 15);
+    } else if (points.length === 1) {
+      map.setView(points[0], 15);
     }
-  }, [map, userLocation, driverLocation]);
+  }, [map, userLocation, driverLocation, hospitalLocation]);
   return null;
 }
 
-export default function LiveTrackingMap({ userLocation, driverLocation, height = "400px" }) {
+const calculateETA = (loc1, loc2) => {
+  if (!loc1?.lat || !loc1?.lng || !loc2?.lat || !loc2?.lng) {
+    return { distance: null, duration: null, text: "Calculating..." };
+  }
+  const R = 6371; // Earth radius in km
+  const dLat = ((loc2.lat - loc1.lat) * Math.PI) / 180;
+  const dLon = ((loc2.lng - loc1.lng) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((loc1.lat * Math.PI) / 180) *
+      Math.cos((loc2.lat * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const distanceKm = R * c;
+  
+  // Average traffic speed: 30 km/h
+  const durationMin = Math.round((distanceKm / 30) * 60);
+  return {
+    distance: distanceKm.toFixed(1),
+    duration: durationMin,
+    text: durationMin <= 1 ? "Arriving" : `${durationMin} mins`
+  };
+};
+
+export default function LiveTrackingMap({ userLocation, driverLocation, hospitalLocation, height = "400px" }) {
   const [routeCoords, setRouteCoords] = useState(null);
 
   useEffect(() => {
@@ -67,11 +108,12 @@ export default function LiveTrackingMap({ userLocation, driverLocation, height =
     
     const fetchRoute = async () => {
       // We only execute routing if both vectors are valid
-      if (userLocation?.lat && driverLocation?.lat) {
+      const targetDest = hospitalLocation?.lat ? hospitalLocation : userLocation;
+      if (targetDest?.lat && driverLocation?.lat) {
         try {
            // Overly important mapping difference: ORS strictly takes [lng, lat] syntax!
            const start = `${driverLocation.lng},${driverLocation.lat}`;
-           const end = `${userLocation.lng},${userLocation.lat}`;
+           const end = `${targetDest.lng},${targetDest.lat}`;
            const apiKey = import.meta.env.VITE_ORS_API_KEY;
 
            if (!apiKey) {
@@ -101,11 +143,17 @@ export default function LiveTrackingMap({ userLocation, driverLocation, height =
     
     // Prevent fetching race condition
     return () => { active = false; };
-  }, [userLocation, driverLocation]);
+  }, [userLocation, driverLocation, hospitalLocation]);
 
   const center = userLocation?.lat ? [userLocation.lat, userLocation.lng] 
                : driverLocation?.lat ? [driverLocation.lat, driverLocation.lng] 
+               : hospitalLocation?.lat ? [hospitalLocation.lat, hospitalLocation.lng]
                : [20.5937, 78.9629]; // Default Geographic India point map
+
+  const targetDest = hospitalLocation?.lat ? hospitalLocation : userLocation;
+  const etaInfo = (driverLocation?.lat && targetDest?.lat)
+    ? calculateETA(driverLocation, targetDest)
+    : null;
 
   return (
     <div 
@@ -117,6 +165,19 @@ export default function LiveTrackingMap({ userLocation, driverLocation, height =
       {!import.meta.env.VITE_ORS_API_KEY && (
          <div className="absolute top-2 left-2 z-[1000] bg-yellow-100 border border-yellow-400 text-yellow-700 px-3 py-1 rounded text-xs opacity-90 shadow">
             Missing OpenRouteService API Key (Line disabled)
+         </div>
+      )}
+
+      {/* Floating ETA & Distance card */}
+      {etaInfo && etaInfo.distance && (
+         <div className="absolute bottom-4 left-4 z-[1000] bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200 dark:border-slate-800 p-4 rounded-2xl shadow-xl flex items-center gap-4 transition-all">
+            <div className="w-10 h-10 bg-red-105 dark:bg-red-950/40 rounded-xl flex items-center justify-center text-xl shrink-0">
+               🚑
+            </div>
+            <div>
+               <p className="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-black tracking-wider">Estimated Arrival</p>
+               <p className="text-sm font-black text-slate-800 dark:text-white mt-0.5">{etaInfo.text} ({etaInfo.distance} km remaining)</p>
+            </div>
          </div>
       )}
 
@@ -133,7 +194,7 @@ export default function LiveTrackingMap({ userLocation, driverLocation, height =
         />
 
         {/* Bind Custom Auto Map Resizer Engine Module Component Hook */}
-        <MapBoundsFit userLocation={userLocation} driverLocation={driverLocation} />
+        <MapBoundsFit userLocation={userLocation} driverLocation={driverLocation} hospitalLocation={hospitalLocation} />
 
         {/* User Patient Marker View */}
         {userLocation?.lat && (
@@ -146,6 +207,13 @@ export default function LiveTrackingMap({ userLocation, driverLocation, height =
         {driverLocation?.lat && (
           <Marker position={[driverLocation.lat, driverLocation.lng]} icon={driverIcon}>
              <Popup>Ambulance Driver Live</Popup>
+          </Marker>
+        )}
+
+        {/* Hospital Destination Marker View */}
+        {hospitalLocation?.lat && (
+          <Marker position={[hospitalLocation.lat, hospitalLocation.lng]} icon={hospitalIcon}>
+             <Popup>Hospital Destination</Popup>
           </Marker>
         )}
 

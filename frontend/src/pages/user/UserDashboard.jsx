@@ -27,6 +27,28 @@ const STATUS_CONFIG = {
   CANCELLED: { icon: XCircle, classes: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400" },
 };
 
+const getGoogleMapsUrl = (item, driverLocation) => {
+  if (!item) return "";
+  const startLat = driverLocation?.lat || driverLocation?.latitude || item.ambulance?.currentLocation?.latitude || item.ambulance?.latitude;
+  const startLng = driverLocation?.lng || driverLocation?.longitude || item.ambulance?.currentLocation?.longitude || item.ambulance?.longitude;
+  const isAfterPickup = item.status === "IN_PROGRESS" || ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(item.status);
+  let dest = "";
+  if (isAfterPickup) {
+    if (item.hospital) {
+      dest = encodeURIComponent(`${item.hospital.name || ""}, ${item.hospital.address || ""}, ${item.hospital.city || ""}`);
+    } else if (item.dropoffLocation) {
+      const lat = item.dropoffLocation.latitude;
+      const lng = item.dropoffLocation.longitude;
+      dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.dropoffLocation.address || "");
+    }
+  } else {
+    const lat = item.pickupLocation?.latitude || item.location?.latitude || item.pickupLocation?.lat || item.location?.lat;
+    const lng = item.pickupLocation?.longitude || item.location?.longitude || item.pickupLocation?.lng || item.location?.lng;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(item.pickupLocation?.address || item.location?.address || "");
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
+
 export default function UserDashboard() {
   const { user } = useAuth();
   const [bookings, setBookings] = useState([]);
@@ -34,10 +56,56 @@ export default function UserDashboard() {
 
   const fetchBookings = async () => {
     try {
-      const res = await API.get("/api/bookings");
-      setBookings(res.data?.data ?? []);
+      const [bookingsRes, emergenciesRes] = await Promise.all([
+        API.get("/api/bookings"),
+        API.get("/api/emergency")
+      ]);
+
+      const bookingsData = (bookingsRes.data?.data ?? []).map(b => ({
+        ...b,
+        type: "booking",
+        isEmergency: false
+      }));
+
+      const emergenciesData = (emergenciesRes.data?.data ?? []).map(e => {
+        const mapEmergencyStatus = (status) => {
+          switch (status) {
+            case "PENDING":
+              return "PENDING";
+            case "AMBULANCE_ACCEPTED":
+            case "ARRIVED_AT_LOCATION":
+            case "EN_ROUTE_TO_HOSPITAL":
+              return "IN_PROGRESS";
+            case "COMPLETED":
+              return "COMPLETED";
+            case "CANCELLED":
+              return "CANCELLED";
+            default:
+              return status;
+          }
+        };
+
+        return {
+          ...e,
+          _id: e._id,
+          requestId: e._id,
+          type: "emergency",
+          status: mapEmergencyStatus(e.status),
+          ambulanceType: "EMERGENCY",
+          pickupLocation: { address: e.location?.address || "Live Emergency Location" },
+          estimatedPrice: 0,
+          createdAt: e.createdAt,
+          isEmergency: true
+        };
+      });
+
+      const combined = [...bookingsData, ...emergenciesData].sort(
+        (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+      );
+
+      setBookings(combined);
     } catch (err) {
-      console.error("Failed to fetch bookings");
+      console.error("Failed to fetch dashboard data", err);
     } finally {
       setLoading(false);
     }
@@ -315,7 +383,7 @@ export default function UserDashboard() {
 
                         {canAct && (
                           <div className="flex flex-col items-end gap-2">
-                            {b.requestId && (
+                            {(b.requestId || b._id) && (
                               <Link
                                 to={`/tracking/${b.requestId || b._id}`}
                                 className={`${
@@ -324,6 +392,17 @@ export default function UserDashboard() {
                               >
                                 Track Live
                               </Link>
+                            )}
+                            {b.ambulance && (b.ambulance.currentLocation || b.ambulance.latitude != null || b.ambulance.longitude != null) && (
+                              <a
+                                href={getGoogleMapsUrl(b)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold transition-colors text-center w-full flex items-center justify-center gap-1"
+                              >
+                                <Navigation size={12} />
+                                Navigation
+                              </a>
                             )}
                             <button
                               onClick={() => {

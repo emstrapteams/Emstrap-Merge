@@ -61,19 +61,29 @@ export const analyzeEmergencyImage = async (
             continue;
         }
 
-        const similarity =
-            await compareEmbeddings(
-                embedding,
-                existingRequest.embedding
+        if (
+            !existingRequest.location ||
+            existingRequest.location.latitude == null ||
+            existingRequest.location.longitude == null
+        ) {
+            console.log(
+                "Skipping request without valid location:",
+                existingRequest._id
             );
+            continue;
+        }
 
-        const distance =
-            calculateDistanceMeters(
-                latitude,
-                longitude,
-                existingRequest.location.latitude,
-                existingRequest.location.longitude
-            );
+        const similarity = await compareEmbeddings(
+            embedding,
+            existingRequest.embedding
+        );
+
+        const distance = calculateDistanceMeters(
+            latitude,
+            longitude,
+            existingRequest.location.latitude,
+            existingRequest.location.longitude
+        );
 
         console.log(
             `Similarity: ${similarity}, Distance: ${distance}`
@@ -83,21 +93,12 @@ export const analyzeEmergencyImage = async (
             similarity > 0.80 &&
             distance < 50
         ) {
-
             duplicateDetected = true;
-
-            duplicateOf =
-                existingRequest._id;
-
-            similarityScore =
-                similarity;
-
+            duplicateOf = existingRequest._id;
+            similarityScore = similarity;
             break;
-
         }
-
     }
-
     if (!duplicateDetected) {
 
         aiAnalysis =

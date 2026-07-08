@@ -26,6 +26,7 @@ export default function Emergency() {
   const [showAIWarning, setShowAIWarning] = useState(false);
   const [pendingEmergency, setPendingEmergency] = useState(null);
   const [aiResult, setAIResult] = useState(null);
+  const [isProcessingEmergency, setIsProcessingEmergency] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [showEvidenceCamera, setShowEvidenceCamera] = useState(false);
   const setStep = (newStep) => {
@@ -53,7 +54,8 @@ export default function Emergency() {
                 lat: request.ambulance.currentLocation.latitude,
                 lng: request.ambulance.currentLocation.longitude
               } : null,
-              eta: "5-8 mins"
+              eta: "5-8 mins",
+              hospitalName: request.hospital?.name || "Assigning..."
             });
             reconnectSocket(requestId);
           }
@@ -107,6 +109,14 @@ export default function Emergency() {
     setSocket(socket);
   };
 
+  useEffect(() => {
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [socket]);
+
   const startEmergency = () => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -130,10 +140,14 @@ export default function Emergency() {
 
   const handleSendEmergency = async (photoData) => {
 
+    if (isProcessingEmergency) return;
+
     if (!location) {
       toast.error("Waiting for GPS location...");
       return;
     }
+
+    setIsProcessingEmergency(true);
 
     try {
 
@@ -166,6 +180,11 @@ export default function Emergency() {
       console.error(err);
 
       toast.error("AI pre-check failed.");
+
+    }
+    finally {
+
+      setIsProcessingEmergency(false);
 
     }
 
@@ -313,7 +332,7 @@ export default function Emergency() {
                     await cancelEmergencyByUser(requestId);
                     toast.success("Emergency cancelled successfully.");
                     sessionStorage.removeItem("emergency_requestId");
-                    
+
                   }
                   resetEmergency();
                 } catch (err) {
@@ -407,7 +426,12 @@ export default function Emergency() {
                 <p className="text-xs text-zinc-400 dark:text-zinc-500">Attach a situational photo if safe. Otherwise click Skip.</p>
               </div>
               <div className="rounded-xl overflow-hidden bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800/50 p-2">
-                <CameraCapture ref={cameraRef} onSend={handleSendEmergency} onCancel={resetEmergency} />
+                <CameraCapture
+                  ref={cameraRef}
+                  onSend={handleSendEmergency}
+                  onCancel={resetEmergency}
+                  disabled={isProcessingEmergency}
+                />
               </div>
             </div>
           )}

@@ -74,8 +74,11 @@ export const ensureDefaultAdminUser = async () => {
 export const verifyPasswordAndUpgradeIfNeeded = async (user, candidatePassword) => {
   if (!user?.password) return false;
 
-  if (isBcryptHash(user.password)) {
-    return bcrypt.compare(candidatePassword, user.password);
+  try {
+    const isMatch = await bcrypt.compare(candidatePassword, user.password);
+    if (isMatch) return true;
+  } catch (err) {
+    // bcrypt.compare may throw if the password is not a valid bcrypt hash
   }
 
   const plainTextMatch = user.password === candidatePassword;

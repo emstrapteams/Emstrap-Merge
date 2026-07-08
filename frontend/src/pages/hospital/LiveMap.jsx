@@ -62,10 +62,10 @@ export default function LiveMap() {
             });
         });
 
-        socket.on("update_location", (data) => {
+        socket.on("ambulance_location", (data) => {
             setAmbulanceLocations((prev) => ({
                 ...prev,
-                [data.requestId]: { lat: data.lat, lng: data.lng }
+                [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
             }));
         });
 

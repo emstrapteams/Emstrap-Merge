@@ -1,53 +1,76 @@
+import json
 import requests
 from io import BytesIO
 
 from PIL import Image
 
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
-from core.model import get_model, load_checkpoint
-from core.dataset import get_transforms
-from core.logic import EmergencyLogic
+from torchvision import transforms
+from torchvision.models import efficientnet_b0
 
 
-# -------------------------------
-# Device
-# -------------------------------
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-# -------------------------------
-# Classes
-# -------------------------------
-CLASSES = [
-    "accident",
-    "fire",
-    "non_emergency"
-]
+# -------------------------
+# Load Classes
+# -------------------------
+with open("classes.json", "r") as f:
+    CLASSES = json.load(f)
 
 
-# -------------------------------
-# Load Model ONLY ONCE
-# -------------------------------
-model = get_model(num_classes=len(CLASSES))
-model = load_checkpoint(model, "best_model.pth", device=device)
+# -------------------------
+# Load EfficientNet Model
+# -------------------------
+model = efficientnet_b0(weights=None)
 
-_, val_transform = get_transforms()
+num_features = model.classifier[1].in_features
+
+model.classifier[1] = nn.Linear(
+    num_features,
+    len(CLASSES)
+)
+
+model.load_state_dict(
+    torch.load(
+        "emstrap_best.pth",
+        map_location=device
+    )
+)
+print("✅ Loaded model: emstrap_best.pth")
+print("📁 Classes:", CLASSES)
+
+model.to(device)
+
+model.eval()
+
+
+# -------------------------
+# Image Transform
+# -------------------------
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(
+        [0.485, 0.456, 0.406],
+        [0.229, 0.224, 0.225]
+    )
+])
 
 
 def classify_image_from_url(image_url):
 
-    # Download image from Cloudinary
     response = requests.get(image_url)
-
     response.raise_for_status()
 
-    image = Image.open(BytesIO(response.content)).convert("RGB")
+    image = Image.open(
+        BytesIO(response.content)
+    ).convert("RGB")
 
-    image_tensor = val_transform(image).unsqueeze(0).to(device)
-
-    model.eval()
+    image_tensor = transform(image).unsqueeze(0).to(device)
 
     with torch.no_grad():
 
@@ -55,21 +78,27 @@ def classify_image_from_url(image_url):
 
         probabilities = F.softmax(outputs, dim=1)[0]
 
-        confidence, predicted_idx = torch.max(probabilities, 0)
+        confidence, predicted_idx = torch.max(
+            probabilities,
+            0
+        )
 
     predicted_class = CLASSES[predicted_idx.item()]
 
-    confidence = float(confidence.item())
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    print("Raw probabilities:", probabilities.tolist())
+    print("Predicted class:", predicted_class)
+    print("Confidence:", float(confidence.item()))
+    print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
-    assessment = EmergencyLogic.get_assessment(
-        predicted_class,
-        confidence
-    )
+    confidence = float(confidence.item())
 
     all_probabilities = {}
 
     for i, cls in enumerate(CLASSES):
-        all_probabilities[cls] = float(probabilities[i].item())
+        all_probabilities[cls] = float(
+            probabilities[i].item()
+        )
 
     return {
 
@@ -77,10 +106,6 @@ def classify_image_from_url(image_url):
 
         "confidence": confidence,
 
-        "severity": assessment["severity"],
-
-        "recommended_ambulance":
-            assessment["recommended_ambulance"],
-
         "all_probabilities": all_probabilities
+
     }

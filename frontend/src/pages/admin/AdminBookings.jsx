@@ -7,6 +7,10 @@ import AdminSurface from "../../components/admin/AdminSurface";
 import { AdminEmptyRow, AdminLoadingRow } from "../../components/admin/AdminTableState";
 import { bookingStatusOptions, formatDate } from "../../components/admin/admin.utils";
 import { deleteBookingById, getAllAdminBookings, getErrorMessage, updateBookingStatus } from "../../services/api";
+import { Navigation } from "lucide-react";
+import { io } from "socket.io-client";
+import { API_URL } from "../../services/api";
+import LiveTrackingMap from "../../components/map/LiveTrackingMap";
 
 const cls = {
   select:
@@ -56,6 +60,9 @@ const typeColor = (type) => {
 export default function AdminBookings() {
   const [bookings, setBookings] = useState([]);
   const [selectedBooking, setSelectedBooking] = useState(null);
+  const [trackingBooking, setTrackingBooking] = useState(null);
+  const [liveAmbulanceLocations, setLiveAmbulanceLocations] = useState({});
+  const [liveUserLocations, setLiveUserLocations] = useState({});
   const [editingBooking, setEditingBooking] = useState(null);
   const [bookingStatus, setBookingStatus] = useState("PENDING");
   const [loading, setLoading] = useState(true);
@@ -80,6 +87,32 @@ export default function AdminBookings() {
   };
 
   useEffect(() => { fetchBookings(); }, []);
+
+  useEffect(() => {
+    if (!trackingBooking) return;
+
+    const socketUrl = API_URL || window.location.origin;
+    const socket = io(socketUrl, { withCredentials: true });
+    socket.emit("track_request", { requestId: trackingBooking._id });
+
+    socket.on("ambulance_location", (data) => {
+      setLiveAmbulanceLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
+      }));
+    });
+
+    socket.on("user_location", (data) => {
+      setLiveUserLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [trackingBooking?._id]);
 
   const handleStatusUpdate = async (bookingId, status) => {
     const tid = toast.loading("Updating booking…");
@@ -250,6 +283,15 @@ export default function AdminBookings() {
                   <td className={cls.td}>
                     <div className="flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
                       <button type="button" onClick={() => setSelectedBooking(b)} className={cls.btnView}>View</button>
+                      {["ACCEPTED", "ARRIVED", "IN_PROGRESS"].includes(b.status) && b.ambulance && (
+                        <button
+                          type="button"
+                          onClick={() => setTrackingBooking(b)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all duration-150 dark:bg-blue-955/40 dark:hover:bg-blue-900/60 dark:text-blue-300"
+                        >
+                          Track Live
+                        </button>
+                      )}
                       <button type="button" onClick={() => openEditModal(b)} className={cls.btnEdit}>Update</button>
                       <button type="button" onClick={() => handleDelete(b._id)} className={cls.btnDel}>Delete</button>
                     </div>
@@ -268,6 +310,139 @@ export default function AdminBookings() {
           onClose={() => setSelectedBooking(null)}
         >
           <AdminDetailGrid data={getBookingDetails(selectedBooking)} />
+          {(() => {
+            const startLat = selectedBooking.ambulance?.currentLocation?.latitude || selectedBooking.pickupLocation?.latitude;
+            const startLng = selectedBooking.ambulance?.currentLocation?.longitude || selectedBooking.pickupLocation?.longitude;
+            const isAfterPickup = selectedBooking.status === "IN_PROGRESS";
+            const dest = isAfterPickup
+              ? `${selectedBooking.dropoffLocation?.latitude || ""},${selectedBooking.dropoffLocation?.longitude || ""}`
+              : `${selectedBooking.pickupLocation?.latitude || ""},${selectedBooking.pickupLocation?.longitude || ""}`;
+            const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+            return (
+              <div className="mt-6 flex justify-end gap-3">
+                <a
+                  href={mapsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+                >
+                  <Navigation className="h-4 w-4" />
+                  Google Maps Navigation
+                </a>
+              </div>
+            );
+          })()}
+        </AdminModal>
+      )}
+
+      {trackingBooking && (
+        <AdminModal
+          title="Live Route Tracking"
+          subtitle={`Route tracking for Booking: ${trackingBooking._id}`}
+          onClose={() => setTrackingBooking(null)}
+        >
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+              {/* Map */}
+              <div className="lg:col-span-2 h-[400px] w-full overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-800 shadow-sm relative z-0">
+                <LiveTrackingMap
+                  userLocation={
+                    liveUserLocations[trackingBooking._id]
+                      ? { lat: liveUserLocations[trackingBooking._id].lat, lng: liveUserLocations[trackingBooking._id].lng }
+                      : trackingBooking.pickupLocation?.latitude != null && trackingBooking.pickupLocation?.longitude != null
+                      ? { lat: trackingBooking.pickupLocation.latitude, lng: trackingBooking.pickupLocation.longitude }
+                      : null
+                  }
+                  driverLocation={
+                    liveAmbulanceLocations[trackingBooking._id]
+                      ? { lat: liveAmbulanceLocations[trackingBooking._id].lat, lng: liveAmbulanceLocations[trackingBooking._id].lng }
+                      : trackingBooking.ambulance?.currentLocation?.latitude != null && trackingBooking.ambulance?.currentLocation?.longitude != null
+                      ? { lat: trackingBooking.ambulance.currentLocation.latitude, lng: trackingBooking.ambulance.currentLocation.longitude }
+                      : trackingBooking.ambulance?.latitude != null && trackingBooking.ambulance?.longitude != null
+                      ? { lat: trackingBooking.ambulance.latitude, lng: trackingBooking.ambulance.longitude }
+                      : null
+                  }
+                  hospitalLocation={
+                    trackingBooking.status === "IN_PROGRESS" && trackingBooking.dropoffLocation?.latitude
+                      ? { lat: trackingBooking.dropoffLocation.latitude, lng: trackingBooking.dropoffLocation.longitude }
+                      : null
+                  }
+                  height="100%"
+                />
+              </div>
+
+              {/* Sidebar details */}
+              <div className="flex flex-col justify-between bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded-2xl p-5 space-y-4">
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-[0.25em] text-gray-400">Booking Details</h4>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400">PATIENT NAME</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-gray-100">
+                        {trackingBooking.user?.name || "Anonymous Patient"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400">AMBULANCE FLEET</p>
+                      <p className="text-sm font-extrabold text-gray-800 dark:text-gray-100">
+                        {trackingBooking.ambulance?.name || "Awaiting dispatch name"}
+                      </p>
+                      <span className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+                        {trackingBooking.ambulance?.vehicleNumber || "License Tag"}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-bold text-gray-400">CURRENT POSITION</p>
+                      {liveAmbulanceLocations[trackingBooking._id] ? (
+                        <p className="text-xs font-extrabold text-blue-500 animate-pulse">
+                          {liveAmbulanceLocations[trackingBooking._id].lat.toFixed(5)}, {liveAmbulanceLocations[trackingBooking._id].lng.toFixed(5)}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-semibold text-gray-400">Awaiting initial GPS ping</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-blue-500/10 text-blue-600 text-[10px] font-black uppercase tracking-widest border border-blue-500/20">
+                    Live Signal Connecting
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+              {(() => {
+                const liveLoc = liveAmbulanceLocations[trackingBooking._id];
+                const startLat = liveLoc?.lat || trackingBooking.ambulance?.currentLocation?.latitude || trackingBooking.ambulance?.latitude || trackingBooking.pickupLocation?.latitude;
+                const startLng = liveLoc?.lng || trackingBooking.ambulance?.currentLocation?.longitude || trackingBooking.ambulance?.longitude || trackingBooking.pickupLocation?.longitude;
+                const isAfterPickup = trackingBooking.status === "IN_PROGRESS";
+                const dest = isAfterPickup
+                  ? `${trackingBooking.dropoffLocation?.latitude || ""},${trackingBooking.dropoffLocation?.longitude || ""}`
+                  : `${trackingBooking.pickupLocation?.latitude || ""},${trackingBooking.pickupLocation?.longitude || ""}`;
+                const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+                return (
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+                  >
+                    <Navigation className="h-4 w-4" />
+                    Google Maps Navigation
+                  </a>
+                );
+              })()}
+              <button
+                type="button"
+                onClick={() => setTrackingBooking(null)}
+                className="rounded-xl bg-slate-900 hover:bg-black dark:bg-slate-200 dark:hover:bg-white px-5 py-2.5 text-sm font-bold text-white dark:text-slate-950 transition-colors shadow-sm"
+              >
+                Close Tracking Dashboard
+              </button>
+            </div>
+          </div>
         </AdminModal>
       )}
 

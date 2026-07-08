@@ -400,6 +400,24 @@ function getPaymentInfo(booking) {
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
+const getGoogleMapsUrl = (request, driverLocation, driverProfile) => {
+  if (!request) return "";
+  const startLat = driverLocation?.lat || driverProfile?.currentLocation?.latitude;
+  const startLng = driverLocation?.lng || driverProfile?.currentLocation?.longitude;
+  const isAfterPickup = request.status === "IN_PROGRESS";
+  let dest;
+  if (isAfterPickup) {
+    const lat = request.dropoffLocation?.latitude;
+    const lng = request.dropoffLocation?.longitude;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(request.dropoffLocation?.address || "");
+  } else {
+    const lat = request.pickupLocation?.latitude;
+    const lng = request.pickupLocation?.longitude;
+    dest = lat && lng ? `${lat},${lng}` : encodeURIComponent(request.pickupLocation?.address || "");
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
+
 export default function PrivateDriverDashboard() {
   const { user, loginUser, logoutUser } = useAuth();
   const navigate = useNavigate();
@@ -824,6 +842,16 @@ export default function PrivateDriverDashboard() {
 
                         {/* Action buttons */}
                         <div className="flex flex-col gap-2 pt-1">
+                          <a
+                            href={getGoogleMapsUrl(currentAssignment, driverLocation, user)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-xl font-bold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                          >
+                            <Navigation className="w-3.5 h-3.5" />
+                            Google Maps Navigation
+                          </a>
+
                           {currentAssignment.status === "ACCEPTED" && (
                             <button
                               onClick={handleArrived}

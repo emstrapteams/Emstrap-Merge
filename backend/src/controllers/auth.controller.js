@@ -326,7 +326,9 @@ export const loginUser = async (req, res) => {
 
     if (user && passwordMatched) {
 
-      if (!user.isEmailVerified) {
+      // Bypass email verification for admin, hospital, police, government ambulance roles
+      const bypassVerification = ["admin", "hospital", "hospital_admin", "police", "police_hq", "ambulance", "ambulance_driver"].includes(user.role);
+      if (!user.isEmailVerified && !bypassVerification) {
         return res.status(401).json({ success: false, message: "Please verify your email to login" });
       }
 

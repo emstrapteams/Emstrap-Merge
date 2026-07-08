@@ -15,6 +15,7 @@ const CameraCaptureComponent = (
     onSend,
     onCancel,
     mode = "emergency",
+    disabled = false,
   },
   ref
 ) => {
@@ -75,12 +76,12 @@ const CameraCaptureComponent = (
   // 📷 Capture and Send in one go
   const handleCaptureAndSend = () => {
     if (!videoRef.current) return;
-    
+
     const ctx = canvasRef.current.getContext("2d");
     // Match canvas to video size for better capture
     canvasRef.current.width = videoRef.current.videoWidth || 300;
     canvasRef.current.height = videoRef.current.videoHeight || 220;
-    
+
     ctx.drawImage(videoRef.current, 0, 0, canvasRef.current.width, canvasRef.current.height);
     const data = canvasRef.current.toDataURL("image/jpeg", 0.7); // Smaller file size
 
@@ -132,14 +133,22 @@ const CameraCaptureComponent = (
               Cancel
             </button>
             <button
+              disabled={disabled}
               onClick={() => {
                 handleCaptureAndSend();
               }}
-              className="w-2/3 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-red-500/20 active:scale-95"
+              className={`w-2/3 py-3 rounded-xl font-bold text-white transition-all ${disabled
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/20 active:scale-95"
+                }`}
             >
-              {mode === "emergency"
-                ? "SEND EMERGENCY"
-                : "UPLOAD EVIDENCE"}
+              {
+                disabled
+                  ? "PROCESSING AI..."
+                  : mode === "emergency"
+                    ? "SEND EMERGENCY"
+                    : "UPLOAD EVIDENCE"
+              }
             </button>
           </div>
         </>
@@ -156,15 +165,19 @@ const CameraCaptureComponent = (
             </button>
 
             <button
+              disabled={disabled}
               onClick={() => {
                 stopCamera();
                 onSend(image);
               }}
-              className="w-1/2 bg-red-600 hover:bg-red-700 text-white font-semibold py-3 rounded-xl transition-colors"
+              className={`w-1/2 py-3 rounded-xl font-semibold text-white transition-all ${disabled
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-red-600 hover:bg-red-700"
+                }`}
             >
-                {mode === "emergency"
-                  ? "Send Emergency"
-                  : "Upload Evidence"}
+              {mode === "emergency"
+                ? "Send Emergency"
+                : "Upload Evidence"}
             </button>
           </div>
         </>

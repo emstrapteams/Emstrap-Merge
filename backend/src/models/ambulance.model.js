@@ -66,7 +66,7 @@ const ambulanceSchema = new Schema(
 
         isEmailVerified: {
             type: Boolean,
-            default: false
+            default: true
         },
 
         resetPasswordToken: String,

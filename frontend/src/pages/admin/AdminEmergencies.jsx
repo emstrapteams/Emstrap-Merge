@@ -8,6 +8,9 @@ import { formatDate } from "../../components/admin/admin.utils";
 import { deleteEmergencyById, getAllEmergencies, getErrorMessage } from "../../services/api";
 import LiveTrackingMap from "../../components/map/LiveTrackingMap"; // adjust path if your component lives elsewhere
 import EvidenceImageViewer from "../../components/common/EvidenceImageViewer";
+import { Navigation } from "lucide-react";
+import { io } from "socket.io-client";
+import { API_URL } from "../../services/api";
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
 const cls = {
@@ -71,11 +74,11 @@ const getPatientLocation = (em) =>
 // IN_PROGRESS) — i.e. emergencies that still need attention right now.
 
 const filterCards = [
-  { key: "ALL",       label: "Total Cases",   match: () => true },
-  { key: "PENDING",   label: "Pending",       match: (e) => e.status === "PENDING" },
-  { key: "ACTIVE",    label: "Active Alerts", match: (e) => ["AMBULANCE_ACCEPTED", "ARRIVED_AT_LOCATION", "EN_ROUTE_TO_HOSPITAL"].includes(e.status) },
-  { key: "RESOLVED",  label: "Resolved",      match: (e) => e.status === "COMPLETED" },
-  { key: "CANCELLED", label: "Cancelled",     match: (e) => e.status === "CANCELLED" },
+  { key: "ALL", label: "Total Cases", match: () => true },
+  { key: "PENDING", label: "Pending", match: (e) => e.status === "PENDING" },
+  { key: "ACTIVE", label: "Active Alerts", match: (e) => ["AMBULANCE_ACCEPTED", "ARRIVED_AT_LOCATION", "EN_ROUTE_TO_HOSPITAL"].includes(e.status) },
+  { key: "RESOLVED", label: "Resolved", match: (e) => e.status === "COMPLETED" },
+  { key: "CANCELLED", label: "Cancelled", match: (e) => e.status === "CANCELLED" },
 ];
 
 // Per-card accent colors (hover + active/selected state).
@@ -114,10 +117,41 @@ const CARD_STYLES = {
   },
 };
 
+const getGoogleMapsUrl = (em, liveAmbulanceLocations) => {
+  if (!em) return "";
+  const patientLoc = em.location?.latitude != null && em.location?.longitude != null
+    ? { lat: em.location.latitude, lng: em.location.longitude }
+    : null;
+  const liveLoc = liveAmbulanceLocations?.[em._id];
+  const amb = em.ambulance;
+  let driverLoc = null;
+  if (liveLoc) {
+    driverLoc = liveLoc;
+  } else if (amb) {
+    if (amb.latitude != null && amb.longitude != null) {
+      driverLoc = { lat: amb.latitude, lng: amb.longitude };
+    } else if (amb.location?.latitude != null && amb.location?.longitude != null) {
+      driverLoc = { lat: amb.location.latitude, lng: amb.location.longitude };
+    }
+  }
+  const startLat = driverLoc?.lat || patientLoc?.lat;
+  const startLng = driverLoc?.lng || patientLoc?.lng;
+  const isAfterPickup = ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(em.status);
+  let dest;
+  if (isAfterPickup && em.hospital) {
+    dest = encodeURIComponent(`${em.hospital.name}, ${em.hospital.address}, ${em.hospital.city}`);
+  } else {
+    dest = patientLoc ? `${patientLoc.lat},${patientLoc.lng}` : "";
+  }
+  return `https://www.google.com/maps/dir/?api=1&origin=${startLat || ""},${startLng || ""}&destination=${dest}&travelmode=driving`;
+};
+
 export default function AdminEmergencies() {
   const [emergencies, setEmergencies] = useState([]);
   const [selectedEmergency, setSelectedEmergency] = useState(null);
   const [trackingEmergency, setTrackingEmergency] = useState(null);
+  const [liveAmbulanceLocations, setLiveAmbulanceLocations] = useState({});
+  const [liveUserLocations, setLiveUserLocations] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -139,32 +173,59 @@ export default function AdminEmergencies() {
     }
   };
 
-  useEffect(() => { fetchEmergencies(); }, []);
+  useEffect(() => {
+    fetchEmergencies();
 
+    const socket = io(API_URL || window.location.origin, {
+      withCredentials: true,
+    });
+
+    socket.on("emergency_updated", (updatedEmergency) => {
+      setEmergencies((prev) =>
+        prev.map((em) =>
+          em._id === updatedEmergency._id ? updatedEmergency : em
+        )
+      );
+
+      setSelectedEmergency((prev) =>
+        prev?._id === updatedEmergency._id ? updatedEmergency : prev
+      );
+
+      setTrackingEmergency((prev) =>
+        prev?._id === updatedEmergency._id ? updatedEmergency : prev
+      );
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
   // While a tracking modal is open, keep that emergency's data fresh so the
   // driver marker moves instead of staying frozen on a stale snapshot.
   useEffect(() => {
     if (!trackingEmergency) return;
 
-    const poll = setInterval(async () => {
-      try {
-        const res = await getAllEmergencies();
-        if (res.success) {
-          setEmergencies(res.emergencies);
-          const updated = res.emergencies.find((e) => e._id === trackingEmergency._id);
-          if (updated) {
-            setTrackingEmergency(updated);
-          } else {
-            // Case no longer exists (e.g. deleted elsewhere) — close the modal.
-            setTrackingEmergency(null);
-          }
-        }
-      } catch {
-        // Silent — don't spam toasts during background polling.
-      }
-    }, 8000);
+    const socketUrl = API_URL || window.location.origin;
+    const socket = io(socketUrl, { withCredentials: true });
+    socket.emit("track_request", { requestId: trackingEmergency._id });
 
-    return () => clearInterval(poll);
+    socket.on("ambulance_location", (data) => {
+      setLiveAmbulanceLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
+      }));
+    });
+
+    socket.on("user_location", (data) => {
+      setLiveUserLocations((prev) => ({
+        ...prev,
+        [data.requestId]: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
+      }));
+    });
+
+    return () => {
+      socket.disconnect();
+    };
   }, [trackingEmergency?._id]);
 
   const handleDelete = async (emergencyId) => {
@@ -191,8 +252,10 @@ export default function AdminEmergencies() {
     "Assigned Driver": em.ambulance?.driverName || em.ambulance?.name || "Awaiting response",
     "Driver Contact": em.ambulance?.contact || em.ambulance?.mobile,
     "Vehicle Number": em.ambulance?.vehicleNumber,
+    "Hospital Assigned": em.hospital?.name || "—",
+    "Hospital City": em.hospital?.city || undefined,
     Coordinates: em.location ? `${em.location.latitude}, ${em.location.longitude}` : "N/A",
-    
+
     "Created Date": formatDate(em.createdAt),
   });
 
@@ -214,7 +277,7 @@ export default function AdminEmergencies() {
     >
       {error && (
         <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 dark:border-red-800/40 dark:bg-red-950/30 p-4 flex items-start gap-3">
-          <svg className="h-5 w-5 text-red-500 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path strokeLinecap="round" d="M12 8v4M12 16h.01"/></svg>
+          <svg className="h-5 w-5 text-red-500 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 8v4M12 16h.01" /></svg>
           <p className="text-sm font-medium text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
@@ -231,20 +294,17 @@ export default function AdminEmergencies() {
               key={card.key}
               onClick={() => setActiveFilter(card.key)}
               aria-pressed={isActive}
-              className={`group rounded-2xl p-5 text-left border transition-all duration-150 ease-out focus:outline-none ${
-                isActive
+              className={`group rounded-2xl p-5 text-left border transition-all duration-150 ease-out focus:outline-none ${isActive
                   ? s.activeWrap
                   : `border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 ${s.hoverWrap}`
-              }`}
+                }`}
             >
-              <p className={`text-xs font-bold uppercase tracking-wide transition-colors ${
-                isActive ? s.activeText : `text-gray-400 dark:text-gray-500 ${s.hoverText}`
-              }`}>
+              <p className={`text-xs font-bold uppercase tracking-wide transition-colors ${isActive ? s.activeText : `text-gray-400 dark:text-gray-500 ${s.hoverText}`
+                }`}>
                 {card.label}
               </p>
-              <p className={`text-3xl font-black mt-2 tabular-nums transition-colors ${
-                isActive ? s.activeText : `text-gray-900 dark:text-white ${s.hoverText}`
-              }`}>
+              <p className={`text-3xl font-black mt-2 tabular-nums transition-colors ${isActive ? s.activeText : `text-gray-900 dark:text-white ${s.hoverText}`
+                }`}>
                 {count}
               </p>
             </button>
@@ -262,7 +322,7 @@ export default function AdminEmergencies() {
 
         {!loading && visibleEmergencies.length === 0 && (
           <AdminSurface className="p-12 text-center">
-            <svg className="h-12 w-12 text-gray-200 dark:text-gray-700 mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>
+            <svg className="h-12 w-12 text-gray-200 dark:text-gray-700 mx-auto mb-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" /></svg>
             <p className="text-sm text-gray-400">
               {emergencies.length === 0
                 ? "No emergencies recorded yet."
@@ -389,6 +449,18 @@ export default function AdminEmergencies() {
               data={getDetails(selectedEmergency)}
             />
 
+            <div className="flex justify-end gap-3 pt-2">
+              <a
+                href={getGoogleMapsUrl(selectedEmergency)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+              >
+                <Navigation className="h-4 w-4" />
+                Google Maps Navigation
+              </a>
+            </div>
+
           </div>
         </AdminModal>
       )}
@@ -417,9 +489,34 @@ export default function AdminEmergencies() {
 
             <LiveTrackingMap
               height="450px"
-              userLocation={getPatientLocation(trackingEmergency)}
-              driverLocation={getDriverLocation(trackingEmergency)}
+              userLocation={
+                liveUserLocations[trackingEmergency._id]
+                  ? { lat: liveUserLocations[trackingEmergency._id].lat, lng: liveUserLocations[trackingEmergency._id].lng }
+                  : getPatientLocation(trackingEmergency)
+              }
+              driverLocation={
+                liveAmbulanceLocations[trackingEmergency._id]
+                  ? { lat: liveAmbulanceLocations[trackingEmergency._id].lat, lng: liveAmbulanceLocations[trackingEmergency._id].lng }
+                  : getDriverLocation(trackingEmergency)
+              }
+              hospitalLocation={
+                ["EN_ROUTE_TO_HOSPITAL", "COMPLETED"].includes(trackingEmergency.status) && trackingEmergency.hospital?.latitude != null
+                  ? { lat: trackingEmergency.hospital.latitude, lng: trackingEmergency.hospital.longitude }
+                  : null
+              }
             />
+
+            <div className="flex justify-end gap-3 pt-2">
+              <a
+                href={getGoogleMapsUrl(trackingEmergency, liveAmbulanceLocations)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-xl bg-green-600 hover:bg-green-700 text-white px-5 py-2.5 text-sm font-bold transition-all shadow-sm active:scale-95"
+              >
+                <Navigation className="h-4 w-4" />
+                Google Maps Navigation
+              </a>
+            </div>
 
             {!getDriverLocation(trackingEmergency) && (
               <p className="text-xs text-gray-400 italic">
