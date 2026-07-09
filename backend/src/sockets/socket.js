@@ -31,7 +31,7 @@ export const initSocket = (server) => {
   });
 
   io.on("connection", (socket) => {
-    
+
 
     // Ambulance joins a specific room to receive nearby requests
     socket.on("join_ambulance", (data) => {
@@ -76,18 +76,18 @@ export const initSocket = (server) => {
         });
         io.to(`request_${data.requestId}`).emit("ambulance_location", data);
 
-        
+
         // 2. Throttled Persist to DB (slow, every 5 seconds)
         try {
           const now = Date.now();
           const lastUpdate = lastUpdateMap.get(`driver_${data.requestId}`) || 0;
-          
+
           if (now - lastUpdate > 5000) { // 5 seconds throttle
             lastUpdateMap.set(`driver_${data.requestId}`, now);
-            
-            const EmergencyRequest = (await import("../models/emergencyrequest.model.js")).default;
+
+            const EmergencyRequest = (await import("../models/emergencyRequest.model.js")).default;
             const Ambulance = (await import("../models/ambulance.model.js")).default;
-            
+
             const request = await EmergencyRequest.findById(data.requestId);
             if (request && request.ambulance) {
               await Ambulance.findByIdAndUpdate(request.ambulance, {
@@ -114,15 +114,15 @@ export const initSocket = (server) => {
         });
         io.to(`request_${data.requestId}`).emit("user_location", data);
 
-        
+
         // 2. Throttled Persist to DB
         try {
           const now = Date.now();
           const lastUpdate = lastUpdateMap.get(`user_${data.requestId}`) || 0;
-          
+
           if (now - lastUpdate > 5000) {
             lastUpdateMap.set(`user_${data.requestId}`, now);
-            const EmergencyRequest = (await import("../models/emergencyrequest.model.js")).default;
+            const EmergencyRequest = (await import("../models/emergencyRequest.model.js")).default;
             await EmergencyRequest.findByIdAndUpdate(data.requestId, {
               location: {
                 latitude: data.latitude,

@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
-import EmergencyRequest from "../models/emergencyrequest.model.js";
+import EmergencyRequest from "../models/emergencyRequest.model.js";
 import { getIO } from "../sockets/socket.js";
 import Ambulance from "../models/ambulance.model.js";
 const driverStatuses = ["LIVE", "OFFLINE"];

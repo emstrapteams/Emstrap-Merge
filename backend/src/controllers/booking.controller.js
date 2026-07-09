@@ -1,7 +1,7 @@
 import { getBookingConnection } from "../config/bookingDb.js";
 import { getBookingDbBookingModel } from "../models/bookingDbBooking.model.js";
 import { getBookingUserModel } from "../models/bookingUser.model.js";
-import EmergencyRequest from "../models/emergencyrequest.model.js";
+import EmergencyRequest from "../models/emergencyRequest.model.js";
 import { getIO } from "../sockets/socket.js";
 
 const resolveBookingUserIds = async (user) => {
@@ -34,7 +34,7 @@ export const createBooking = async (req, res) => {
     console.log("=== Inside createBooking ===");
     console.log("req.user:", req.user ? { _id: req.user._id, role: req.user.role, email: req.user.email } : "UNDEFINED");
     console.log("req.body:", req.body);
-    
+
     try {
         if (!req.user) {
             console.log("createBooking 403: req.user is undefined/null");

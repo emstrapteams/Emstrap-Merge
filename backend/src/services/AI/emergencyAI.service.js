@@ -1,4 +1,4 @@
-import EmergencyRequest from "../../models/emergencyrequest.model.js";
+import EmergencyRequest from "../../models/emergencyRequest.model.js";
 
 import {
     generateEmbedding,

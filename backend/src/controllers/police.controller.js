@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-import Emergency from "../models/emergencyrequest.model.js";
+import Emergency from "../models/emergencyRequest.model.js";
 import User from "../models/user.model.js";
 import Police from "../models/police.model.js";
 const isValidEmail = (email) => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(email);
@@ -201,7 +201,7 @@ export const deletePoliceRecord = async (req, res) => {
     try {
         const police = await Police.findByIdAndDelete(
             req.params.id
-        );  
+        );
 
         if (!police) {
             return res.status(404).json({ success: false, message: "Police record not found" });
