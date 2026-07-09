@@ -1,4 +1,4 @@
-import emergencyRequestSchema from "../models/emergencyRequest.model.js.js";
+import emergencyRequestSchema from "../models/emergencyRequest.model.js";
 import Ambulance from "../models/ambulance.model.js";
 import { getIO, activeDriverLocations, activePatientLocations } from "../sockets/socket.js";
 import cloudinary from "../config/cloudinary.js";
