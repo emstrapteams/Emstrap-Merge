@@ -508,7 +508,7 @@ export default function Emergency() {
             <div className="bg-white dark:bg-zinc-900 rounded-2xl p-8 w-[420px] shadow-2xl">
 
               <h2 className="text-2xl font-bold text-red-600">
-                ⚠ AI Safety Check
+                 AI Safety Check
               </h2>
 
               <p className="mt-4 text-zinc-600 dark:text-zinc-300">
