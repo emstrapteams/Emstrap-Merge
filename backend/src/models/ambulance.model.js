@@ -68,7 +68,13 @@ const ambulanceSchema = new Schema(
             type: Boolean,
             default: true
         },
+        emailVerificationToken: {
+            type: String
+        },
 
+        emailVerificationTokenExpiry: {
+            type: Date
+        },
         resetPasswordToken: String,
         resetPasswordExpire: Date,
     },

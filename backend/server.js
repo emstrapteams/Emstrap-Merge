@@ -5,7 +5,9 @@ import app from "./app.js";
 import http from "http";
 import { initSocket } from "./src/sockets/socket.js";
 import { ensureDefaultAdminUser } from "./src/utils/adminAuth.js";
-
+console.log("SERVER STARTED FROM:", import.meta.url);
+console.log("EMAIL_USER =", process.env.EMAIL_USER);
+console.log("EMAIL_PASS =", process.env.EMAIL_PASS);
 dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 const server = http.createServer(app);

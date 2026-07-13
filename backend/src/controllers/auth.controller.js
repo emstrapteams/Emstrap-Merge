@@ -84,11 +84,16 @@ export const registerUser = async (req, res) => {
     }
 
     const userRole = role || "user";
-    const allowedRegisterRoles = ["user", "private_driver"];
-    if (!allowedRegisterRoles.includes(userRole)) {
-      return res.status(400).json({ message: "Invalid role for self-registration" });
-    }
+    const allowedRegisterRoles = [
+      "user",
+      "ambulance_driver",
+    ];
 
+    if (!allowedRegisterRoles.includes(userRole)) {
+      return res.status(400).json({
+        message: "Invalid role for self-registration"
+      });
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Generate Verification Token
@@ -130,17 +135,9 @@ export const registerUser = async (req, res) => {
 
     let user;
 
-    if (userRole === "private_driver") {
+    if (userRole === "ambulance_driver") {
 
-      const bookingConnection =
-        getBookingConnection();
-
-      const BookingDriver =
-        getBookingDriverModel(
-          bookingConnection
-        );
-
-      user = new BookingDriver({
+      user = new Ambulance({
         name,
         email,
         password: hashedPassword,
@@ -149,14 +146,13 @@ export const registerUser = async (req, res) => {
         city,
         vehicleNumber,
 
-        role: "private_driver",
+        role: "ambulance_driver",
 
         isEmailVerified: false,
 
         emailVerificationToken: hashedToken,
-
         emailVerificationTokenExpiry:
-          Date.now() + 24 * 60 * 60 * 1000
+          Date.now() + 24 * 60 * 60 * 1000,
       });
 
     } else {
@@ -168,13 +164,12 @@ export const registerUser = async (req, res) => {
         mobile,
         address,
         city,
-        role: userRole,
 
-        emailVerificationToken:
-          hashedToken,
+        role: "user",
 
+        emailVerificationToken: hashedToken,
         emailVerificationTokenExpiry:
-          Date.now() + 24 * 60 * 60 * 1000
+          Date.now() + 24 * 60 * 60 * 1000,
       });
 
     }
@@ -253,23 +248,16 @@ export const verifyEmail = async (req, res) => {
     });
 
     if (!user) {
-      const bookingConnection = getBookingConnection();
-      const BookingDriver = getBookingDriverModel(bookingConnection);
-      user = await BookingDriver.findOne({
+      user = await Ambulance.findOne({
         emailVerificationToken: hashedToken,
         emailVerificationTokenExpiry: { $gt: Date.now() }
       });
-      
+
       if (!user) {
-        return res.status(400).json({ message: "Verification token is invalid or has expired." });
+        return res.status(400).json({
+          message: "Verification token is invalid or has expired."
+        });
       }
-      
-      user.isEmailVerified = true;
-      user.emailVerificationToken = undefined;
-      user.emailVerificationTokenExpiry = undefined;
-      await user.save();
-      
-      return res.status(200).json({ message: "Email successfully verified." });
     }
 
     user.isEmailVerified = true;
@@ -327,7 +315,13 @@ export const loginUser = async (req, res) => {
     if (user && passwordMatched) {
 
       // Bypass email verification for admin, hospital, police, government ambulance roles
-      const bypassVerification = ["admin", "hospital", "hospital_admin", "police", "police_hq", "ambulance", "ambulance_driver"].includes(user.role);
+      const bypassVerification = [
+        "admin",
+        "hospital",
+        "hospital_admin",
+        "police",
+        "police_hq"
+      ].includes(user.role);
       if (!user.isEmailVerified && !bypassVerification) {
         return res.status(401).json({ success: false, message: "Please verify your email to login" });
       }
@@ -360,7 +354,11 @@ export const loginAdminUser = async (req, res) => {
       await ensureDefaultAdminUser();
     }
 
-    const user = await User.findOne({ email });
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = await Ambulance.findOne({ email });
+    }
     console.log("[auth] admin lookup result", {
       email,
       found: Boolean(user),

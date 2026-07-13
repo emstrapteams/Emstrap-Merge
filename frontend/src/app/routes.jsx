@@ -1,5 +1,6 @@
 import { Suspense, lazy } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 import ProtectedRoute from "./ProtectedRoutes";
 
 // Lazy-loaded page components for better performance
@@ -35,6 +36,35 @@ const PoliceDashboard = lazy(() => import("../pages/Police/PoliceDashboard"));
 const LiveMap = lazy(() => import("../pages/Police/LiveMap"));
 const PoliceSettings = lazy(() => import("../pages/Police/PoliceSettings"));
 
+function HomePage() {
+  const { user, loading } = useAuth();
+
+  if (loading) return null;
+
+  if (!user) {
+    return <Emergency />;
+  }
+
+  switch (user.role) {
+    case "admin":
+      return <Navigate to="/admin" replace />;
+
+    case "hospital":
+    case "hospital_admin":
+      return <Navigate to="/hospital" replace />;
+
+    case "police":
+    case "police_hq":
+      return <Navigate to="/police" replace />;
+
+    case "ambulance_driver":
+    case "private_driver":
+      return <Navigate to="/dashboard" replace />;
+
+    default:
+      return <Navigate to="/dashboard" replace />;
+  }
+}
 
 export default function AppRoutes() {
   return (
@@ -47,7 +77,7 @@ export default function AppRoutes() {
       </div>
     }>
       <Routes>
-        <Route path="/" element={<Emergency />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/verify-email/:token" element={<VerifyEmail />} />
