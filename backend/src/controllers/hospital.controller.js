@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import User from "../models/user.model.js";
 import Hospital from "../models/hospital.model.js";
+import EmergencyRequest from "../models/emergencyRequest.model.js";
 const isValidEmail = (email) => /[^\s@]+@[^\s@]+\.[^\s@]+/.test(email);
 
 const validateHospitalPayload = (payload, isPartial = false) => {
@@ -196,5 +197,24 @@ export const deleteHospital = async (req, res) => {
     return res.status(200).json({ success: true, message: "Hospital deleted successfully" });
   } catch (error) {
     return res.status(500).json({ success: false, message: "Error deleting hospital", error: error.message });
+  }
+};
+export const getPatientRecords = async (req, res) => {
+  try {
+    const patients = await EmergencyRequest.find({
+      hospital: req.user.id, // optional if hospital-specific
+    })
+      .populate("user", "name age gender")
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      data: patients,
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message,
+    });
   }
 };

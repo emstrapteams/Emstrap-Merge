@@ -392,7 +392,13 @@ export default function PatientRecords() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/patients`);
+      const token = localStorage.getItem("authToken");
+
+      const res = await fetch("/api/hospitals/patients", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const json = await res.json();
       // Support both { data: [...] } and [...]

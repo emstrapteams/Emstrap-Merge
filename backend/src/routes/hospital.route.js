@@ -3,6 +3,7 @@ import {
   getHospitals,
   getAvailableHospitals,
   getHospitalById,
+  getPatientRecords,
   createHospital,
   updateHospital,
   updateEmergencyBeds,
@@ -15,7 +16,13 @@ const router = Router();
 console.log("HOSPITAL ROUTE FILE LOADED");
 router.get("/", getHospitals);
 router.get("/available", getAvailableHospitals);
+router.get(
+  "/patients",
+  authMiddleware,
+  getPatientRecords
+);
 router.get("/:id", getHospitalById);
+
 router.patch(
   "/update-beds",
   authMiddleware,
