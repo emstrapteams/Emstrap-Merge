@@ -51,11 +51,8 @@ export default function AmbulanceFound({ driverInfo, onCancel }) {
   const { location: userLocation } = useEmergency();
   const destination =
     driverInfo?.status === "EN_ROUTE_TO_HOSPITAL" &&
-      emergency?.hospital?.location
-      ? {
-        lat: emergency.hospital.location.latitude,
-        lng: emergency.hospital.location.longitude,
-      }
+    driverInfo?.hospitalLocationCoords
+      ? driverInfo.hospitalLocationCoords
       : userLocation;
 
   const etaInfo = calculateETA(driverInfo?.location, destination);
@@ -74,6 +71,13 @@ export default function AmbulanceFound({ driverInfo, onCancel }) {
         <div className="w-full lg:flex-1 bg-gray-100 dark:bg-gray-800 rounded-3xl overflow-hidden shadow-inner h-[350px] sm:h-[450px] lg:h-[650px] relative z-10">
           <LiveTrackingMap
             userLocation={userLocation}
+            hospitalLocation={
+              driverInfo?.status === "EN_ROUTE_TO_HOSPITAL"
+                ? driverInfo.hospitalLocationCoords
+                : null
+            }
+            hospitalName={driverInfo?.hospitalName}
+            hospitalAddress={driverInfo?.hospitalLocation}
             driverLocation={driverInfo?.location}
             height="100%"
           />

@@ -60,6 +60,7 @@ export default function Tracking() {
   const [userLocation, setUserLocation] = useState(null);
   const [socket, setSocket] = useState(null);
   const [requestStatus, setRequestStatus] = useState("PENDING");
+  const [emergency, setEmergency] = useState(null);
   const watchIdRef = useRef(null);
 
   useEffect(() => {
@@ -69,18 +70,25 @@ export default function Tracking() {
     const fetchInitialData = async () => {
       try {
         const res = await getEmergencyDetailsAPI(requestId);
-        if (res.success && res.data.ambulance) {
-          const amb = res.data.ambulance;
-          setDriverInfo({
-            driverName: amb.name,
-            driverMobile: amb.mobile,
-            vehicleNumber: amb.vehicleNumber,
-            location: amb.currentLocation ? { 
-              lat: amb.currentLocation.latitude, 
-              lng: amb.currentLocation.longitude 
-            } : null,
-            hospitalName: res.data.hospital?.name,
-          });
+        if (res.success) {
+          setEmergency(res.data);
+          if (res.data.ambulance) {
+            const amb = res.data.ambulance;
+            setDriverInfo({
+              driverName: amb.name,
+              driverMobile: amb.mobile,
+              vehicleNumber: amb.vehicleNumber,
+              location: amb.currentLocation ? { 
+                lat: amb.currentLocation.latitude, 
+                lng: amb.currentLocation.longitude 
+              } : null,
+              hospitalName: res.data.hospital?.name,
+              hospitalLocation: res.data.hospital
+                ? `${res.data.hospital.address}, ${res.data.hospital.city}`
+                : "N/A",
+              status: res.data.status,
+            });
+          }
         }
       } catch (err) {
         console.error("Failed to fetch initial tracking data", err);
@@ -103,7 +111,11 @@ export default function Tracking() {
     newSocket.emit("track_request", { requestId });
 
     newSocket.on("ambulance_assigned", (data) => {
-      setDriverInfo(data);
+      setDriverInfo((prev) => ({
+        ...prev,
+        ...data,
+        status: data.status || "AMBULANCE_ACCEPTED"
+      }));
     });
 
     newSocket.on("ambulance_location", (data) => {
@@ -114,6 +126,46 @@ export default function Tracking() {
           location: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
         };
       });
+    });
+
+    newSocket.on("driver_arrived", () => {
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "ARRIVED_AT_LOCATION"
+      }));
+    });
+
+    newSocket.on("hospital_assigned", (data) => {
+      setEmergency(data);
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "EN_ROUTE_TO_HOSPITAL",
+        hospitalName: data.hospital?.name,
+        hospitalLocation: data.hospital
+          ? `${data.hospital.address}, ${data.hospital.city}`
+          : "N/A",
+      }));
+    });
+
+    newSocket.on("emergency_updated", (data) => {
+      setEmergency(data);
+      if (data.ambulance) {
+        setDriverInfo((prev) => ({
+          ...prev,
+          driverName: data.ambulance.name,
+          driverMobile: data.ambulance.mobile,
+          vehicleNumber: data.ambulance.vehicleNumber,
+          location: data.ambulance.currentLocation ? {
+            lat: data.ambulance.currentLocation.latitude,
+            lng: data.ambulance.currentLocation.longitude
+          } : prev?.location,
+          hospitalName: data.hospital?.name,
+          hospitalLocation: data.hospital
+            ? `${data.hospital.address}, ${data.hospital.city}`
+            : "N/A",
+          status: data.status,
+        }));
+      }
     });
 
     newSocket.on("emergency_cancelled", () => {
@@ -127,8 +179,14 @@ export default function Tracking() {
     });
 
     newSocket.on("trip_completed", () => {
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "COMPLETED"
+      }));
       toast.success("Trip completed! Thank you for using Emstrap.");
-      navigate("/dashboard");
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 3000);
     });
 
     setSocket(newSocket);
@@ -161,6 +219,7 @@ export default function Tracking() {
   }, [requestId, navigate]);
 
   const destination =
+    driverInfo?.status === "EN_ROUTE_TO_HOSPITAL" &&
     emergency?.hospital?.location
       ? {
         lat: emergency.hospital.location.latitude,
@@ -188,13 +247,16 @@ export default function Tracking() {
               <LiveTrackingMap
                 userLocation={userLocation}
                 hospitalLocation={
-                  emergency?.hospital
+                  driverInfo?.status === "EN_ROUTE_TO_HOSPITAL" &&
+                  emergency?.hospital?.location
                     ? {
                       lat: emergency.hospital.location.latitude,
                       lng: emergency.hospital.location.longitude,
                     }
                     : null
                 }
+                hospitalName={emergency?.hospital?.name}
+                hospitalAddress={emergency?.hospital?.address}
                 driverLocation={driverInfo?.location}
                 height="100%"
               />
@@ -289,12 +351,12 @@ export default function Tracking() {
                       </div>
                       <span className="font-bold text-green-700 dark:text-green-400 text-sm">
                         {driverInfo?.status === "ARRIVED_AT_LOCATION"
-                          ? "Driver has arrived"
-
+                          ? "Driver Arrived"
                           : driverInfo?.status === "EN_ROUTE_TO_HOSPITAL"
-                            ? `Transporting to ${driverInfo?.hospitalName || "Hospital"}`
-
-                            : "En Route to your location"}
+                            ? "Transporting to Hospital"
+                            : driverInfo?.status === "COMPLETED"
+                              ? "Completed"
+                              : "Ambulance Assigned"}
                       </span>
                     </div>
                     {driverInfo?.location && (

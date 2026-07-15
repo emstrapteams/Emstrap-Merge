@@ -61,8 +61,11 @@ function HomePage() {
     case "private_driver":
       return <Navigate to="/dashboard" replace />;
 
+    case "user":
+      return <Emergency />;
+
     default:
-      return <Navigate to="/dashboard" replace />;
+      return <Emergency />;
   }
 }
 
@@ -172,7 +175,7 @@ export default function AppRoutes() {
           <Route index element={<HospitalDashboard />} />
           <Route path="map" element={<HospitalMap />} />
           <Route path="settings" element={<HospitalSettings />} />
-          <Route path="PatientRecords" element={<HospitalPatientRecords />} />  
+          <Route path="PatientRecords" element={<HospitalPatientRecords />} />
         </Route>
 
         {/* Police Protected Hierarchy */}

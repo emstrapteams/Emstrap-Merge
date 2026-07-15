@@ -104,6 +104,8 @@ export default function LiveTrackingMap({
   userLocation,
   hospitalLocation,
   driverLocation,
+  hospitalName,
+  hospitalAddress,
   height = "400px"
 }) {
   const [routeCoords, setRouteCoords] = useState(null);
@@ -205,13 +207,13 @@ export default function LiveTrackingMap({
         <MapBoundsFit userLocation={userLocation} driverLocation={driverLocation} hospitalLocation={hospitalLocation} />
 
         {/* User Patient Marker View */}
-        {destination?.lat && (
+        {userLocation?.lat && (
           <Marker
-            position={[destination.lat, destination.lng]}
+            position={[userLocation.lat, userLocation.lng]}
             icon={userIcon}
           >
             <Popup>
-              {hospitalLocation ? "Hospital" : "Patient Location"}
+              Patient Location
             </Popup>
           </Marker>
         )}
@@ -226,7 +228,12 @@ export default function LiveTrackingMap({
         {/* Hospital Destination Marker View */}
         {hospitalLocation?.lat && (
           <Marker position={[hospitalLocation.lat, hospitalLocation.lng]} icon={hospitalIcon}>
-             <Popup>Hospital Destination</Popup>
+             <Popup>
+               <div className="text-xs">
+                 <p className="font-bold">{hospitalName || "Hospital Destination"}</p>
+                 <p className="text-gray-500">{hospitalAddress || ""}</p>
+               </div>
+             </Popup>
           </Marker>
         )}
 

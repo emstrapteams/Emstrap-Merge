@@ -92,7 +92,14 @@ export const createHospital = async (req, res) => {
       email: req.body.email,
       password: hashedPassword,
       role: "hospital",
+
       emergencyBeds: req.body.emergencyBeds ?? 0,
+
+      location: {
+        latitude: req.body.location?.latitude ?? 0,
+        longitude: req.body.location?.longitude ?? 0,
+      },
+
       isEmailVerified: true,
     });
     console.log("CREATED HOSPITAL:", hospital);
@@ -110,11 +117,27 @@ export const updateHospital = async (req, res) => {
     }
 
     const updatePayload = {};
-    for (const field of ["name", "address", "city", "mobile", "email", "password"]) {
+    for (const field of [
+      "name",
+      "address",
+      "city",
+      "mobile",
+      "email",
+      "password",
+      "emergencyBeds",
+    ]) {
       if (typeof req.body[field] !== "undefined" && req.body[field] !== "") {
         updatePayload[field] = req.body[field];
       }
     }
+
+    if (req.body.location) {
+      updatePayload.location = {
+        latitude: req.body.location.latitude ?? 0,
+        longitude: req.body.location.longitude ?? 0,
+      };
+    }
+
 
     const hospital = await Hospital.findByIdAndUpdate(
       req.params.id,

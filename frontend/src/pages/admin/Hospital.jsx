@@ -41,6 +41,11 @@ const initialForm = {
   mobile: "",
   email: "",
   password: "",
+
+  emergencyBeds: 0,
+
+  latitude: "",
+  longitude: "",
 };
 
 export default function Hospital() {
@@ -83,7 +88,19 @@ export default function Hospital() {
 
   const handleEdit = (h) => {
     setEditingHospital(h);
-    setForm({ name: h.name || "", address: h.address || "", city: h.city || "", mobile: h.mobile || "", email: h.email || "", password: "" });
+    setForm({
+      name: h.name || "",
+      address: h.address || "",
+      city: h.city || "",
+      mobile: h.mobile || "",
+      email: h.email || "",
+      password: "",
+
+      emergencyBeds: h.emergencyBeds || 0,
+
+      latitude: h.location?.latitude || "",
+      longitude: h.location?.longitude || "",
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -91,7 +108,19 @@ export default function Hospital() {
     setSaving(true);
     try {
       if (isEditing) {
-        const res = await updateHospital(editingHospital._id, form);
+        const res = await updateHospital(
+          editingHospital._id,
+          {
+            ...form,
+
+            emergencyBeds: Number(form.emergencyBeds),
+
+            location: {
+              latitude: Number(form.latitude),
+              longitude: Number(form.longitude),
+            },
+          }
+        );
         if (res.success) {
           setHospitals((c) => c.map((i) => i._id === editingHospital._id ? res.hospital : i));
           setSelectedHospital((c) => c?._id === editingHospital._id ? res.hospital : c);
@@ -99,7 +128,16 @@ export default function Hospital() {
           closeEditModal();
         }
       } else {
-        const res = await addHospital(form);
+        const res = await addHospital({
+          ...form,
+
+          emergencyBeds: Number(form.emergencyBeds),
+
+          location: {
+            latitude: Number(form.latitude),
+            longitude: Number(form.longitude),
+          },
+        });
         if (res.success) {
           setHospitals((c) => [res.hospital, ...c]);
           toast.success("Hospital added");
@@ -170,6 +208,51 @@ export default function Hospital() {
         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">City</label>
         <input name="city" value={form.city} onChange={handleInputChange} placeholder="Bangalore" className={cls.input} required />
       </div>
+      <div>
+        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
+          Emergency Beds
+        </label>
+
+        <input
+          type="number"
+          name="emergencyBeds"
+          value={form.emergencyBeds}
+          onChange={handleInputChange}
+          className={cls.input}
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
+          Latitude
+        </label>
+
+        <input
+          type="number"
+          step="any"
+          name="latitude"
+          value={form.latitude}
+          onChange={handleInputChange}
+          placeholder="12.9716"
+          className={cls.input}
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 mb-1.5 uppercase tracking-wide">
+          Longitude
+        </label>
+
+        <input
+          type="number"
+          step="any"
+          name="longitude"
+          value={form.longitude}
+          onChange={handleInputChange}
+          placeholder="77.5946"
+          className={cls.input}
+        />
+      </div>
     </div>
   );
 
@@ -188,7 +271,7 @@ export default function Hospital() {
     >
       {error && (
         <div className="mb-6 rounded-2xl border border-red-200 bg-red-50 dark:border-red-800/40 dark:bg-red-950/30 p-4 flex items-start gap-3">
-          <svg className="h-5 w-5 text-red-500 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path strokeLinecap="round" d="M12 8v4M12 16h.01"/></svg>
+          <svg className="h-5 w-5 text-red-500 mt-0.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path strokeLinecap="round" d="M12 8v4M12 16h.01" /></svg>
           <p className="text-sm font-medium text-red-700 dark:text-red-300">{error}</p>
         </div>
       )}
@@ -197,7 +280,7 @@ export default function Hospital() {
       <AdminSurface className="mb-6 p-6">
         <div className="flex items-center gap-3 mb-5">
           <div className="h-9 w-9 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
-            <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="1"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 7v6M9 10h6M8 21v-4h8v4"/></svg>
+            <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="1" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 7v6M9 10h6M8 21v-4h8v4" /></svg>
           </div>
           <div>
             <h2 className="text-base font-bold text-gray-900 dark:text-white">Add Hospital</h2>
@@ -248,7 +331,7 @@ export default function Hospital() {
                   <td className={cls.td}>
                     <div className="flex items-center gap-3">
                       <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-blue-100 to-cyan-100 dark:from-blue-900/40 dark:to-cyan-900/30 flex items-center justify-center">
-                        <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="1"/><path strokeLinecap="round" strokeLinejoin="round" d="M12 7v6M9 10h6M8 21v-4h8v4"/></svg>
+                        <svg className="h-5 w-5 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="3" width="16" height="18" rx="1" /><path strokeLinecap="round" strokeLinejoin="round" d="M12 7v6M9 10h6M8 21v-4h8v4" /></svg>
                       </div>
                       <p className="font-bold text-gray-900 dark:text-white text-sm">{h.name}</p>
                     </div>
@@ -265,11 +348,11 @@ export default function Hospital() {
                   <td className={cls.td}>
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-bold ${h.emergencyBeds > 0
-                          ? "bg-green-100 text-green-700"
-                          : "bg-red-100 text-red-700"
+                        ? "bg-green-100 text-green-700"
+                        : "bg-red-100 text-red-700"
                         }`}
                     >
-                        {h.emergencyBeds}
+                      {h.emergencyBeds}
                     </span>
                   </td>
 

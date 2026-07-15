@@ -55,7 +55,17 @@ export default function Emergency() {
                 lng: request.ambulance.currentLocation.longitude
               } : null,
               eta: "5-8 mins",
-              hospitalName: request.hospital?.name || "Assigning..."
+              hospitalName: request.hospital?.name || "Assigning...",
+              status: request.status,
+              hospitalLocation: request.hospital
+                ? `${request.hospital.address}, ${request.hospital.city}`
+                : "",
+              hospitalLocationCoords: request.hospital?.location
+                ? {
+                  lat: request.hospital.location.latitude,
+                  lng: request.hospital.location.longitude,
+                }
+                : null,
             });
             reconnectSocket(requestId);
           }
@@ -81,39 +91,21 @@ export default function Emergency() {
 
     socket.on("ambulance_assigned", (data) => {
       clearTimeout(timer);
-      setDriverInfo(data);
+      setDriverInfo((prev) => ({
+        ...prev,
+        ...data,
+        status: data.status || "AMBULANCE_ACCEPTED",
+        hospitalLocationCoords: data.hospitalLocationCoords || (data.hospital?.location
+          ? {
+            lat: data.hospital.location.latitude,
+            lng: data.hospital.location.longitude,
+          }
+          : prev?.hospitalLocationCoords)
+      }));
       setStep("accepted");
     });
 
     socket.on("ambulance_location", (data) => {
-      socket.on("driver_arrived", () => {
-        setDriverInfo((prev) => ({
-          ...prev,
-          status: "ARRIVED_AT_LOCATION",
-        }));
-      });
-
-      socket.on("hospital_assigned", (request) => {
-        setDriverInfo((prev) => ({
-          ...prev,
-          status: "EN_ROUTE_TO_HOSPITAL",
-          hospitalName: request.hospital?.name,
-          hospitalLocation: request.hospital
-            ? `${request.hospital.address}, ${request.hospital.city}`
-            : "",
-        }));
-      });
-
-      socket.on("emergency_updated", (request) => {
-        setDriverInfo((prev) => ({
-          ...prev,
-          status: request.status,
-          hospitalName: request.hospital?.name,
-          hospitalLocation: request.hospital
-            ? `${request.hospital.address}, ${request.hospital.city}`
-            : "",
-        }));
-      });
       setDriverInfo((prev) => {
         if (!prev) return prev;
         return {
@@ -123,10 +115,63 @@ export default function Emergency() {
       });
     });
 
+    socket.on("driver_arrived", () => {
+      clearTimeout(timer);
+
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "ARRIVED_AT_LOCATION",
+      }));
+    });
+
+    socket.on("hospital_assigned", (request) => {
+      clearTimeout(timer);
+
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "EN_ROUTE_TO_HOSPITAL",
+        hospitalName: request.hospital?.name,
+        hospitalLocation: request.hospital
+          ? `${request.hospital.address}, ${request.hospital.city}`
+          : "",
+        hospitalLocationCoords: request.hospital?.location
+          ? {
+            lat: request.hospital.location.latitude,
+            lng: request.hospital.location.longitude,
+          }
+          : null,
+      }));
+    });
+
+    socket.on("emergency_updated", (request) => {
+      clearTimeout(timer);
+
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: request.status,
+        hospitalName: request.hospital?.name,
+        hospitalLocation: request.hospital
+          ? `${request.hospital.address}, ${request.hospital.city}`
+          : "",
+        hospitalLocationCoords: request.hospital?.location
+          ? {
+            lat: request.hospital.location.latitude,
+            lng: request.hospital.location.longitude,
+          }
+          : null,
+      }));
+    });
+
     socket.on("trip_completed", () => {
       clearTimeout(timer);
+      setDriverInfo((prev) => ({
+        ...prev,
+        status: "COMPLETED",
+      }));
       toast.success("Your ride has been completed! Stay safe. 🚑", { duration: 6000 });
-      resetEmergency();
+      setTimeout(() => {
+        resetEmergency();
+      }, 3000);
     });
 
     socket.on("emergency_cancelled", () => {
@@ -223,6 +268,7 @@ export default function Emergency() {
 
     try {
       console.log("submitEmergency() CALLED");
+
       if (!location) {
         toast.error("Failed to acquire live location. Please allow GPS.");
         setStep("start");
@@ -236,75 +282,11 @@ export default function Emergency() {
       });
 
       const requestId = response.data.data._id;
+
       sessionStorage.setItem("emergency_requestId", requestId);
 
-      const socket = io(API_URL, { withCredentials: true });
-      socket.emit("track_request", { requestId });
+      reconnectSocket(requestId);
 
-      const timer = setTimeout(() => {
-        setStep("timeout");
-        socket.disconnect();
-        setLocation(null);
-        setPhoto(null);
-        sessionStorage.removeItem("emergency_requestId");
-      }, 60000);
-
-      socket.on("ambulance_assigned", (data) => {
-        clearTimeout(timer);
-        setDriverInfo(data);
-        setStep("accepted");
-      });
-
-      socket.on("ambulance_location", (data) => {
-        socket.on("driver_arrived", () => {
-          setDriverInfo((prev) => ({
-            ...prev,
-            status: "ARRIVED_AT_LOCATION",
-          }));
-        });
-
-        socket.on("hospital_assigned", (request) => {
-          setDriverInfo((prev) => ({
-            ...prev,
-            status: "EN_ROUTE_TO_HOSPITAL",
-            hospitalName: request.hospital?.name,
-            hospitalLocation: request.hospital
-              ? `${request.hospital.address}, ${request.hospital.city}`
-              : "",
-          }));
-        });
-
-        socket.on("emergency_updated", (request) => {
-          setDriverInfo((prev) => ({
-            ...prev,
-            status: request.status,
-            hospitalName: request.hospital?.name,
-            hospitalLocation: request.hospital
-              ? `${request.hospital.address}, ${request.hospital.city}`
-              : "",
-          }));
-        });
-        setDriverInfo((prev) => {
-          if (!prev) return prev;
-          return {
-            ...prev,
-            location: { lat: data.lat || data.latitude, lng: data.lng || data.longitude }
-          };
-        });
-      });
-
-      socket.on("emergency_cancelled", () => {
-        toast.error("This emergency request was cancelled.");
-        resetEmergency();
-      });
-
-      socket.on("trip_completed", () => {
-        clearTimeout(timer);
-        toast.success("Your ride has been completed! Stay safe. 🚑", { duration: 6000 });
-        resetEmergency();
-      });
-
-      setSocket(socket);
     } catch (error) {
       console.error("Failed to call ambulance", error);
       toast.error("Error reaching server. Trying again...");
@@ -564,7 +546,7 @@ export default function Emergency() {
             <div className="bg-white dark:bg-zinc-900 rounded-2xl p-8 w-[420px] shadow-2xl">
 
               <h2 className="text-2xl font-bold text-red-600">
-                 AI Safety Check
+                AI Safety Check
               </h2>
 
               <p className="mt-4 text-zinc-600 dark:text-zinc-300">
