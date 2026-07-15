@@ -59,6 +59,7 @@ export default function Tracking() {
   const [driverInfo, setDriverInfo] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [socket, setSocket] = useState(null);
+  const [requestStatus, setRequestStatus] = useState("PENDING");
   const watchIdRef = useRef(null);
 
   useEffect(() => {
@@ -159,7 +160,15 @@ export default function Tracking() {
     };
   }, [requestId, navigate]);
 
-  const etaInfo = calculateETA(driverInfo?.location, userLocation);
+  const destination =
+    emergency?.hospital?.location
+      ? {
+        lat: emergency.hospital.location.latitude,
+        lng: emergency.hospital.location.longitude,
+      }
+      : userLocation;
+
+  const etaInfo = calculateETA(driverInfo?.location, destination);
 
   return (
     <>
@@ -178,6 +187,14 @@ export default function Tracking() {
             <div className="w-full lg:flex-1 bg-gray-100 dark:bg-gray-800 rounded-3xl overflow-hidden shadow-inner h-[350px] sm:h-[450px] lg:h-[650px] relative z-10">
               <LiveTrackingMap
                 userLocation={userLocation}
+                hospitalLocation={
+                  emergency?.hospital
+                    ? {
+                      lat: emergency.hospital.location.latitude,
+                      lng: emergency.hospital.location.longitude,
+                    }
+                    : null
+                }
                 driverLocation={driverInfo?.location}
                 height="100%"
               />
@@ -239,7 +256,30 @@ export default function Tracking() {
                       </a>
                     </div>
                   )}
+                  {driverInfo?.hospitalName &&
+                    driverInfo.hospitalName !== "Assigning..." && (
+                      <div className="flex items-center gap-4 bg-red-50 dark:bg-red-900/20 p-3 rounded-2xl transition-colors">
+                        <div className="w-12 h-12 bg-red-100 dark:bg-red-900/40 rounded-2xl flex items-center justify-center text-2xl shrink-0">
+                          
+                        </div>
 
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider">
+                            Destination Hospital
+                          </p>
+
+                          <p className="font-bold text-lg text-red-600 dark:text-red-400 truncate">
+                            {driverInfo.hospitalName}
+                          </p>
+
+                          {driverInfo.hospitalLocation && (
+                            <p className="text-xs text-gray-500 truncate">
+                              {driverInfo.hospitalLocation}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   <div className="pt-4 border-t dark:border-gray-800">
                     <p className="text-[10px] text-gray-500 uppercase font-bold tracking-wider mb-1.5">Current Status</p>
                     <div className="flex items-center gap-3 bg-green-50 dark:bg-green-900/10 p-3 rounded-2xl border border-green-100 dark:border-green-900/20 mb-2">
@@ -247,7 +287,15 @@ export default function Tracking() {
                         <div className="w-3 h-3 bg-green-500 rounded-full"></div>
                         <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping"></div>
                       </div>
-                      <span className="font-bold text-green-700 dark:text-green-400 text-sm">En Route to your location</span>
+                      <span className="font-bold text-green-700 dark:text-green-400 text-sm">
+                        {driverInfo?.status === "ARRIVED_AT_LOCATION"
+                          ? "Driver has arrived"
+
+                          : driverInfo?.status === "EN_ROUTE_TO_HOSPITAL"
+                            ? `Transporting to ${driverInfo?.hospitalName || "Hospital"}`
+
+                            : "En Route to your location"}
+                      </span>
                     </div>
                     {driverInfo?.location && (
                       <a

@@ -86,6 +86,34 @@ export default function Emergency() {
     });
 
     socket.on("ambulance_location", (data) => {
+      socket.on("driver_arrived", () => {
+        setDriverInfo((prev) => ({
+          ...prev,
+          status: "ARRIVED_AT_LOCATION",
+        }));
+      });
+
+      socket.on("hospital_assigned", (request) => {
+        setDriverInfo((prev) => ({
+          ...prev,
+          status: "EN_ROUTE_TO_HOSPITAL",
+          hospitalName: request.hospital?.name,
+          hospitalLocation: request.hospital
+            ? `${request.hospital.address}, ${request.hospital.city}`
+            : "",
+        }));
+      });
+
+      socket.on("emergency_updated", (request) => {
+        setDriverInfo((prev) => ({
+          ...prev,
+          status: request.status,
+          hospitalName: request.hospital?.name,
+          hospitalLocation: request.hospital
+            ? `${request.hospital.address}, ${request.hospital.city}`
+            : "",
+        }));
+      });
       setDriverInfo((prev) => {
         if (!prev) return prev;
         return {
@@ -228,6 +256,34 @@ export default function Emergency() {
       });
 
       socket.on("ambulance_location", (data) => {
+        socket.on("driver_arrived", () => {
+          setDriverInfo((prev) => ({
+            ...prev,
+            status: "ARRIVED_AT_LOCATION",
+          }));
+        });
+
+        socket.on("hospital_assigned", (request) => {
+          setDriverInfo((prev) => ({
+            ...prev,
+            status: "EN_ROUTE_TO_HOSPITAL",
+            hospitalName: request.hospital?.name,
+            hospitalLocation: request.hospital
+              ? `${request.hospital.address}, ${request.hospital.city}`
+              : "",
+          }));
+        });
+
+        socket.on("emergency_updated", (request) => {
+          setDriverInfo((prev) => ({
+            ...prev,
+            status: request.status,
+            hospitalName: request.hospital?.name,
+            hospitalLocation: request.hospital
+              ? `${request.hospital.address}, ${request.hospital.city}`
+              : "",
+          }));
+        });
         setDriverInfo((prev) => {
           if (!prev) return prev;
           return {

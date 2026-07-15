@@ -36,6 +36,18 @@ const hospitalSchema = new Schema(
             required: true
         },
 
+        location: {
+            latitude: {
+                type: Number,
+                default: 0,
+            },
+            longitude: {
+                type: Number,
+                default: 0,
+            },
+        },
+
+
         emergencyBeds: {
             type: Number,
             default: 0,

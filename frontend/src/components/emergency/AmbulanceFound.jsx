@@ -49,7 +49,16 @@ const getGoogleMapsUrl = (driverInfo, userLocation) => {
 
 export default function AmbulanceFound({ driverInfo, onCancel }) {
   const { location: userLocation } = useEmergency();
-  const etaInfo = calculateETA(driverInfo?.location, userLocation);
+  const destination =
+    driverInfo?.status === "EN_ROUTE_TO_HOSPITAL" &&
+      emergency?.hospital?.location
+      ? {
+        lat: emergency.hospital.location.latitude,
+        lng: emergency.hospital.location.longitude,
+      }
+      : userLocation;
+
+  const etaInfo = calculateETA(driverInfo?.location, destination);
 
   return (
     <div className="flex flex-col gap-6 mt-6">

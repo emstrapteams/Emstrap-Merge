@@ -836,10 +836,26 @@ export default function AmbulanceDashboard() {
             {/* Map */}
             <div className="flex-1 sm:w-[70%] h-[50vh] sm:h-full relative border-b sm:border-b-0 sm:border-r border-gray-200 dark:border-gray-800">
               <LiveTrackingMap
-                userLocation={userLocation || (currentAssignment ? {
-                  lat: currentAssignment.location?.latitude,
-                  lng: currentAssignment.location?.longitude,
-                } : null)}
+                userLocation={
+                  userLocation || (
+                    currentAssignment
+                      ? {
+                        lat: currentAssignment.location?.latitude,
+                        lng: currentAssignment.location?.longitude,
+                      }
+                      : null
+                  )
+                }
+
+                hospitalLocation={
+                  currentAssignment?.hospital?.location
+                    ? {
+                      lat: currentAssignment.hospital.location.latitude,
+                      lng: currentAssignment.hospital.location.longitude,
+                    }
+                    : null
+                }
+
                 driverLocation={driverLocation}
                 height="100%"
               />

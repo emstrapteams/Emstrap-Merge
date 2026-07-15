@@ -74,7 +74,10 @@ export const assignHospital = async (req, res) => {
     )
       .populate("user", "name mobile email address city")
       .populate("ambulance", "name email mobile vehicleNumber")
-      .populate("hospital", "name address city mobile email");
+      .populate(
+        "hospital",
+        "name address city mobile email location"
+      )
     hospital.emergencyBeds -= 1;
     await hospital.save();
     const io = getIO();
@@ -101,8 +104,15 @@ export const assignHospital = async (req, res) => {
       driverMobile: req.user.mobile || "",
       vehicleNumber: req.user.vehicleNumber || "",
       hospitalName: updated.hospital?.name || "Assigning...",
-      hospitalLocation: updated.hospital ? `${updated.hospital.address}, ${updated.hospital.city}` : "N/A",
+      hospitalLocation: updated.hospital
+        ? `${updated.hospital.address}, ${updated.hospital.city}`
+        : "N/A",
+      status: "EN_ROUTE_TO_HOSPITAL",
     });
+
+    io.to(`request_${id}`).emit("hospital_assigned", updated);
+
+    io.to(`request_${id}`).emit("emergency_updated", updated);
 
     res.status(200).json({ success: true, data: updated });
   } catch (error) {
@@ -142,11 +152,22 @@ export const markArrived = async (req, res) => {
       .populate("ambulance", "name email mobile vehicleNumber");
 
     const io = getIO();
-    // Notify user and police
-    io.to(`request_${id}`).emit("driver_arrived", { requestId: id });
-    io.to("police").emit("police_alert", { request: populated, status: "ARRIVED" });
+    io.to(`request_${id}`).emit("driver_arrived", {
+      requestId: id,
+      status: "ARRIVED_AT_LOCATION",
+    });
 
-    res.status(200).json({ success: true, data: populated });
+    io.to(`request_${id}`).emit("emergency_updated", populated);
+
+    io.to("police").emit("police_alert", {
+      request: populated,
+      status: "ARRIVED",
+    });
+
+    res.status(200).json({
+      success: true,
+      data: populated,
+    });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -158,7 +179,10 @@ export const getEmergencyDetails = async (req, res) => {
     let request = await emergencyRequestSchema.findById(id)
       .populate("user", "name mobile email address city")
       .populate("ambulance", "name email mobile vehicleNumber currentLocation")
-      .populate("hospital", "name address city mobile email");
+      .populate(
+        "hospital",
+        "name address city mobile email location"
+      );
 
     if (!request) {
       // Fallback: Check if it's a booking in the Booking DB
@@ -597,7 +621,10 @@ export const acceptEmergency = async (req, res) => {
       { new: true }
     ).populate("user", "name mobile email address city")
       .populate("ambulance", "name email mobile vehicleNumber")
-      .populate("hospital", "name address city mobile email");
+      .populate(
+        "hospital",
+        "name address city mobile email location"
+      );
 
     // Update related booking if it's a regular booking request
     if (request.requestType === "BOOKING") {
@@ -842,7 +869,12 @@ export const completeRequest = async (req, res) => {
 
     const io = getIO();
     // Notify the user tracking the request
-    io.to(`request_${id}`).emit("trip_completed", { requestId: id });
+    io.to(`request_${id}`).emit("trip_completed", {
+      requestId: id,
+      status: "COMPLETED",
+    });
+
+    io.to(`request_${id}`).emit("emergency_updated", request);
 
     // Notify user's personal room for dashboard refresh
     if (request.user) {
@@ -876,7 +908,7 @@ export const getDriverHistory = async (req, res) => {
           declinedBy: { $ne: driverId },
           duplicateDetected: { $ne: true }
         })
-        .populate("hospital", "name address city mobile email")
+        .populate("hospital", "name address city mobile email location")
         .populate("user", "name mobile")
         .sort({ createdAt: -1 });
     }
@@ -905,21 +937,21 @@ export const getDriverHistory = async (req, res) => {
     // 2. Accepted Requests by this driver
     const accepted = await emergencyRequestSchema
       .find(acceptedQuery)
-      .populate("hospital", "name address city mobile email")
+      .populate("hospital", "name address city mobile email location")
       .populate("user", "name mobile")
       .sort({ updatedAt: -1 });
 
     // 3. Rejected Requests by this driver
     const rejected = await emergencyRequestSchema
       .find(rejectedQuery)
-      .populate("hospital", "name address city mobile email")
+      .populate("hospital", "name address city mobile email location")
       .populate("user", "name mobile")
       .sort({ updatedAt: -1 });
 
     // 4. Cancelled Requests by user
     const cancelled = await emergencyRequestSchema
       .find(cancelledQuery)
-      .populate("hospital", "name address city mobile email")
+      .populate("hospital", "name address city mobile email location")
       .populate("user", "name mobile")
       .sort({ updatedAt: -1 });
 
@@ -943,7 +975,10 @@ export const getUserEmergencies = async (req, res) => {
       user: req.user._id,
       requestType: "EMERGENCY"
     })
-      .populate("hospital", "name address city mobile email")
+      .populate(
+        "hospital",
+        "name address city mobile email location"
+      )
       .populate("ambulance", "name email mobile vehicleNumber currentLocation")
       .sort({ createdAt: -1 });
 

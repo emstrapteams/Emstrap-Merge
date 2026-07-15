@@ -100,9 +100,17 @@ const calculateETA = (loc1, loc2) => {
   };
 };
 
-export default function LiveTrackingMap({ userLocation, driverLocation, hospitalLocation, height = "400px" }) {
+export default function LiveTrackingMap({
+  userLocation,
+  hospitalLocation,
+  driverLocation,
+  height = "400px"
+}) {
   const [routeCoords, setRouteCoords] = useState(null);
-
+  const destination =
+    hospitalLocation?.lat
+      ? hospitalLocation
+      : userLocation;
   useEffect(() => {
     let active = true;
     
@@ -145,7 +153,7 @@ export default function LiveTrackingMap({ userLocation, driverLocation, hospital
     return () => { active = false; };
   }, [userLocation, driverLocation, hospitalLocation]);
 
-  const center = userLocation?.lat ? [userLocation.lat, userLocation.lng] 
+  const center = destination?.lat ? [destination.lat, destination.lng] 
                : driverLocation?.lat ? [driverLocation.lat, driverLocation.lng] 
                : hospitalLocation?.lat ? [hospitalLocation.lat, hospitalLocation.lng]
                : [20.5937, 78.9629]; // Default Geographic India point map
@@ -197,9 +205,14 @@ export default function LiveTrackingMap({ userLocation, driverLocation, hospital
         <MapBoundsFit userLocation={userLocation} driverLocation={driverLocation} hospitalLocation={hospitalLocation} />
 
         {/* User Patient Marker View */}
-        {userLocation?.lat && (
-          <Marker position={[userLocation.lat, userLocation.lng]} icon={userIcon}>
-             <Popup>Patient Location</Popup>
+        {destination?.lat && (
+          <Marker
+            position={[destination.lat, destination.lng]}
+            icon={userIcon}
+          >
+            <Popup>
+              {hospitalLocation ? "Hospital" : "Patient Location"}
+            </Popup>
           </Marker>
         )}
 
