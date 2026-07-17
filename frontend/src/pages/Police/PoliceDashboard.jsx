@@ -543,6 +543,68 @@ export default function PoliceDashboard() {
             );
           })}
         </div>
+
+        {/* Live Map Panel */}
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900 shadow-sm">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+              <Navigation className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-gray-900 dark:text-white">Live Operations Map</h3>
+              <p className="text-xs text-gray-400 dark:text-gray-500">Real-time status of active cases and ambulance locations</p>
+            </div>
+          </div>
+
+          <div className="h-[400px] rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 relative z-0">
+            <MapContainer
+              center={[20.5937, 78.9629]}
+              zoom={13}
+              style={{ height: '100%', width: '100%' }}
+              zoomControl={false}
+            >
+              <TileLayer
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              />
+              <FitBounds cases={cases} ambulanceLocations={ambulanceLocations} />
+              {cases.filter(c => !["COMPLETED", "CANCELLED"].includes(c.status)).map(c => {
+                const ambLoc = ambulanceLocations[c._id];
+                const patLoc = c.location;
+                const ambLat = ambLoc?.lat || c.ambulance?.currentLocation?.latitude;
+                const ambLng = ambLoc?.lng || c.ambulance?.currentLocation?.longitude;
+                const patLat = patLoc?.lat || patLoc?.latitude;
+                const patLng = patLoc?.lng || patLoc?.longitude;
+
+                return (
+                  <div key={c._id}>
+                    {patLat && patLng && (
+                      <Marker position={[patLat, patLng]} icon={patientIcon}>
+                        <Popup>
+                          <div className="p-1">
+                            <p className="font-bold text-xs">Patient: {c.user?.name || "Anonymous"}</p>
+                            <p className="text-[10px] text-gray-500 mt-0.5">Status: {c.status}</p>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+                    {ambLat && ambLng && (
+                      <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
+                        <Popup>
+                          <div className="p-1">
+                            <p className="font-bold text-xs">Ambulance: {c.ambulance?.name || "Unit"}</p>
+                            <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {c.ambulance?.vehicleNumber}</p>
+                          </div>
+                        </Popup>
+                      </Marker>
+                    )}
+                  </div>
+                );
+              })}
+            </MapContainer>
+          </div>
+        </div>
+
         {/* Combined Overview */}
         <AdminSurface className="mt-6 p-5">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-5">
@@ -645,66 +707,6 @@ export default function PoliceDashboard() {
             ))}
           </div>
         )}
-        {/* Live Map Panel */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-5 dark:border-white/10 dark:bg-slate-900 shadow-sm">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="h-8 w-8 rounded-xl bg-blue-100 dark:bg-blue-900/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
-              <Navigation className="h-5 w-5" />
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-gray-900 dark:text-white">Live Operations Map</h3>
-              <p className="text-xs text-gray-400 dark:text-gray-500">Real-time status of active cases and ambulance locations</p>
-            </div>
-          </div>
-
-          <div className="h-[400px] rounded-xl overflow-hidden border border-gray-200 dark:border-white/10 relative z-0">
-            <MapContainer
-              center={[20.5937, 78.9629]}
-              zoom={13}
-              style={{ height: '100%', width: '100%' }}
-              zoomControl={false}
-            >
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-              />
-              <FitBounds cases={cases} ambulanceLocations={ambulanceLocations} />
-              {cases.filter(c => !["COMPLETED", "CANCELLED"].includes(c.status)).map(c => {
-                const ambLoc = ambulanceLocations[c._id];
-                const patLoc = c.location;
-                const ambLat = ambLoc?.lat || c.ambulance?.currentLocation?.latitude;
-                const ambLng = ambLoc?.lng || c.ambulance?.currentLocation?.longitude;
-                const patLat = patLoc?.lat || patLoc?.latitude;
-                const patLng = patLoc?.lng || patLoc?.longitude;
-
-                return (
-                  <div key={c._id}>
-                    {patLat && patLng && (
-                      <Marker position={[patLat, patLng]} icon={patientIcon}>
-                        <Popup>
-                          <div className="p-1">
-                            <p className="font-bold text-xs">Patient: {c.user?.name || "Anonymous"}</p>
-                            <p className="text-[10px] text-gray-500 mt-0.5">Status: {c.status}</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    )}
-                    {ambLat && ambLng && (
-                      <Marker position={[ambLat, ambLng]} icon={ambulanceIcon}>
-                        <Popup>
-                          <div className="p-1">
-                            <p className="font-bold text-xs">Ambulance: {c.ambulance?.name || "Unit"}</p>
-                            <p className="text-[10px] text-gray-550 mt-0.5">Vehicle: {c.ambulance?.vehicleNumber}</p>
-                          </div>
-                        </Popup>
-                      </Marker>
-                    )}
-                  </div>
-                );
-              })}
-            </MapContainer>
-          </div>
-        </div>
 
         {/* Recent Cases */}
         <div className="space-y-4">
