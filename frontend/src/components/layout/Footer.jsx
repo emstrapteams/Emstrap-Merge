@@ -77,7 +77,7 @@ export default function Footer() {
 
         {/* Bottom bar */}
         <div className="border-t border-gray-700 mt-8 pt-6 text-center text-gray-500 text-sm">
-          © {new Date().getFullYear()} EmSTraP. All rights reserved.
+          © {new Date().getFullYear()} EMSTRAP Pvt Ltd. All rights reserved.
         </div>
       </div>
     </footer>
